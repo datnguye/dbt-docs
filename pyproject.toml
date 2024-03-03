@@ -1,0 +1,97 @@
+[tool.poetry]
+name = "dbdocs"
+version = "0.0.0"
+description = "Auto-generated data documentation site for dbt projects"
+authors = ["Dat Nguyen <datnguyen.it09@gmail.com>"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/datnguye/dbt-docs"
+repository = "https://github.com/datnguye/dbt-docs"
+keywords = ["flake8", "markdown", "lint"]
+classifiers = [
+    "Environment :: Console",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development :: Documentation",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Quality Assurance",
+]
+include = [
+    "LICENSE",
+]
+packages = [
+  {include = "dbdocs"},
+  {include = "README.md"},
+]
+
+[tool.poetry.scripts]
+dbdocs = "dbdocs.main:main"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+click = "^8.1"
+dbterd = "^1"
+jinja2 = "^3.1"
+
+[tool.poetry.group.dev.dependencies]
+dbt-postgres = "^1.5"
+pytest = "^6.2.5"
+pytest-sugar = "^0.9.6"
+black = "^22.10.0"
+coverage = {version = "^6.5.0", extras = ["toml"]}
+poethepoet = "^0.16.4"
+pre-commit = "^2.20.0"
+flake8 = "^6.0.0"
+isort = "^5.12.0"
+autoflake = "^2.0.1"
+mkdocs = "^1.4.2"
+mkdocs-minify-plugin = "^0.6.4"
+mkdocs-material = "^9.1.5"
+mike = "^1.1.2"
+pdoc = "^14.4.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.isort]
+multi_line_output = 3
+force_to_top = ["os"]
+profile = "black"
+skip_gitignore = true
+
+[tool.autoflake]
+recursive = true
+in-place = true
+remove-all-unused-imports = true
+ignore-init-module-imports = true
+remove-unused-variables = true
+ignore-pass-statements = false
+
+[tool.coverage.run]
+omit = ["tests/*"]
+
+[tool.poe.tasks]
+git-hooks = { shell = "pre-commit install --install-hooks && pre-commit install --hook-type commit-msg" }
+format = [
+  {cmd = "autoflake ."},
+  {cmd = "black ."},
+  {cmd = "isort ."},
+]
+lint = [
+  {cmd = "black --check ."},
+  {cmd = "isort --check-only ."},
+  {cmd = "flake8 ."},
+]
+test = [
+  {cmd = "pytest . -vv"},
+]
+test-cov = [
+  {cmd = "pytest --version"},
+  {cmd = "coverage run -m pytest ."},
+  {cmd = "coverage report --show-missing"},
+  {cmd = "coverage xml"},
+]
+build-doc-and-serve = [
+  {cmd = "mkdocs build"},
+  {cmd = "mkdocs serve"}
+]
