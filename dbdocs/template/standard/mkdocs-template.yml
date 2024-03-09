@@ -11,12 +11,13 @@ copyright: Copyright &copy; 2023 Dat Nguyen
 nav:
   - Overview:
     - index.md
-    {% for page_group in page_groups -%}
-    - {{ page_group.get("title") }}:
-      {% for page in page_group.get("pages", []) -%}
-      - {{ page.get("title") }}: {{ page.get("file_path") }}
-      {%- endfor %}
-    {%- endfor %}
+    - Resources: # models, sources, snapshots
+      {% for page_group in page_groups -%}
+      - {{ page_group.get("title") }}:
+        {% for page in page_group.get("pages", []) -%}
+        - {{ page.get("title") }}: {{ page.get("file_path") }}
+        {% endfor %}
+      {% endfor %}
   - dbt docs ↗️: dbt-docs/index.html" target="_blank # managed by hooks.copy_dbt_docs
 
 hooks:
@@ -84,8 +85,6 @@ plugins:
       height: auto
       zoomable: true
       draggable: true
-      skip_classes:
-        - custom-skip-class-name
       auto_caption: false
       caption_position: bottom
       background: white
