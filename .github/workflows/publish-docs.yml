@@ -1,0 +1,56 @@
+name: Build and Deploy Docs Site
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Document version e.g. 1.1, 1.2
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/cache@v4
+        with:
+          key: ${{ github.ref }}
+          path: .cache
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Cache UV dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/uv
+          key: ubuntu-3.10-uv-${{ hashFiles('**/pyproject.toml') }}
+          restore-keys: |
+            ubuntu-3.10-uv-
+
+      - name: Install dependencies
+        run: uv sync --group docs
+
+      - name: Build the live demo from jaffle_shop fixtures
+        # Generates into docs/demo so mkdocs bundles it at /demo/.
+        run: uv run dbdocs -c docs/dbdocs-demo.yml generate
+
+      - name: Configure Git user
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+
+      - name: Publish site
+        run: uv run mike deploy --push --update-aliases ${{ inputs.version }} latest

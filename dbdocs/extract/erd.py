@@ -15,7 +15,7 @@ from dbterd.api import DbtErd
 from dbdocs.extract import erd_json  # noqa: F401
 
 
-def build_erd(dbterd_options: "dict | None" = None) -> DbtErd:
+def build_erd(dbterd_options: "dict | None" = None, artifacts_dir: "str | None" = None) -> DbtErd:
     """Build the ERD generator (json target) from dbdocs' ``dbterd`` options.
 
     ``dbterd_options`` is the ``dbterd:`` block of ``dbdocs.yml`` (``algo``,
@@ -24,8 +24,15 @@ def build_erd(dbterd_options: "dict | None" = None) -> DbtErd:
     let everything else come from the project's config so the ERD matches what
     the team configured. (Config lives in ``dbdocs.yml``, not a separate
     ``.dbterd.yml``.)
+
+    ``artifacts_dir`` is the dbt target dir (``config.target_dir``). dbterd reads
+    the manifest/catalog directly from this dir; without it dbterd would default
+    to ``./target`` and ignore the configured ``target_dir``. An explicit
+    ``artifacts_dir`` in ``dbterd_options`` still wins.
     """
     dbterd_kwargs = {k: v for k, v in (dbterd_options or {}).items() if k != "target"}
+    if artifacts_dir is not None:
+        dbterd_kwargs.setdefault("artifacts_dir", artifacts_dir)
     return DbtErd(target="json", **dbterd_kwargs)
 
 

@@ -60,6 +60,31 @@ tasks:
     cmds:
       - uv run dbdocs deploy {{.CLI_ARGS}}
 
+  demo:
+    desc: Build the live demo from jaffle_shop fixtures into docs/demo (bundled by mkdocs at /demo/).
+    cmds:
+      - uv run dbdocs -c docs/dbdocs-demo.yml generate
+
+  docs:install:
+    desc: Sync the docs dependency group (mkdocs-material, mike).
+    cmds:
+      - uv sync --group docs
+
+  docs:serve:
+    desc: Serve the documentation site locally with live reload.
+    cmds:
+      - uv run mkdocs serve
+
+  docs:build:
+    desc: Build the documentation site into ./site-docs (strict).
+    cmds:
+      - uv run mkdocs build --strict --site-dir site-docs
+
+  docs:deploy:
+    desc: 'Publish a versioned docs site via mike. Usage: task docs:deploy -- 1.2 latest'
+    cmds:
+      - uv run mike deploy --push --update-aliases {{.CLI_ARGS}}
+
   git-hooks:
     desc: Install pre-commit and commit-msg git hooks.
     cmds:

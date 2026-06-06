@@ -53,6 +53,11 @@ dev = [
   "dbt-postgres>=1.5",
   "pdoc>=14.4.0",
 ]
+docs = [
+  "mkdocs-material>=9.5",
+  "mkdocs-minify-plugin>=0.8",
+  "mike>=2.1",
+]
 
 [tool.ruff]
 line-length = 100

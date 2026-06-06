@@ -76,7 +76,12 @@ class DbDocsConfig:
 
     #: Build-control fields that are not part of the site's display metadata.
     _NON_METADATA_FIELDS = (
-        "target_dir", "output_dir", "dialect", "default_version", "dbterd", "readme"
+        "target_dir",
+        "output_dir",
+        "dialect",
+        "default_version",
+        "dbterd",
+        "readme",
     )
 
     def render_context(self) -> dict:

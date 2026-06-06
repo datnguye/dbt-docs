@@ -1,0 +1,33 @@
+# dbdocs config for the live demo site, built from the jaffle_shop test
+# fixtures. The demo is generated INTO docs/demo so mkdocs bundles it as a
+# static directory at /demo/ — that's how it's hooked into the docs site (no
+# separate workflow). This is NOT the docs site itself (that's mkdocs + mike).
+
+site_name: dbdocs demo — jaffle_shop
+site_description: A live dbdocs site built from the jaffle_shop dbt project
+site_url: https://dbdocs.datnguye.me/demo/
+site_author: Dat Nguyen
+project_name: jaffle_shop
+repo_name: datnguye/dbt-docs
+repo_url: https://github.com/datnguye/dbt-docs
+
+# Read the committed dbt artifacts straight from the test fixtures.
+target_dir: tests/fixtures/jaffle_shop
+
+# Render this repo's README on the overview. Its relative image/link paths are
+# rewritten by the SPA to absolute GitHub raw/blob URLs (via repo_url), so they
+# resolve on the deployed site.
+readme: README.md
+
+# Build into docs/demo so mkdocs copies it into the published site at /demo/.
+output_dir: docs/demo
+
+# dbterd configs
+dbterd:
+  algo: model_contract
+  entity_name_format: table
+  select:
+    - exact:model.jaffle_shop.locations
+    - exact:model.jaffle_shop.orders
+    - wildcard:model.jaffle_shop.dim_*
+    - wildcard:model.jaffle_shop.fct_*

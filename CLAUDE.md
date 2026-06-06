@@ -64,8 +64,33 @@ the same targets so the agentic and manual paths stay aligned.
 | Serve the generated site locally     | `task serve`      | `/docs`       |
 | Deploy a versioned build             | `task deploy`     | `/deploy`     |
 | Cut a PyPI release                   | —                 | `/release`    |
+| Build the jaffle_shop demo site      | `task demo`       | —             |
+| Serve the project docs (mkdocs)      | `task docs:serve` | —             |
+| Build the project docs (strict)      | `task docs:build` | —             |
 
 `task --list` shows everything.
+
+### Project docs vs the generated product
+
+Two distinct "docs" live here — don't conflate them:
+
+- **The product** is the self-contained SPA `dbdocs generate` emits (no mkdocs,
+  no mike — see the design patterns below). It builds into `site/`.
+- **The project's own documentation** at `dbdocs.datnguye.me` is a
+  **mkdocs-material + mike** site under `docs/` (`mkdocs.yml`), published to the
+  `gh-pages` branch by `.github/workflows/publish-docs.yml`. It builds into
+  `site-docs/`. The "no mkdocs" rule is about the *product*, not this repo's docs.
+- **A live demo** is built from the committed `tests/fixtures/jaffle_shop`
+  artifacts via `docs/dbdocs-demo.yml` and published to `gh-pages` under `/demo`
+  by `.github/workflows/build-demo.yml` (`keep_files: true`, so it coexists with
+  the mike docs). It builds into `demo-site/`.
+
+### CI/CD
+
+GitHub Actions under `.github/workflows/`: `ci_pr.yml` (lint + 100%-coverage
+tests across Python 3.10–3.13 on Linux/macOS/Windows), `pypi-publish.yml`
+(trusted-publisher PyPI release on tag push), `publish-docs.yml` (mike deploy),
+`build-demo.yml` (jaffle_shop demo), `stale.yml`.
 
 ### CLI lifecycle
 

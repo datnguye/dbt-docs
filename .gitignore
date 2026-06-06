@@ -125,6 +125,10 @@ venv.bak/
 
 # mkdocs documentation
 /site
+/site-docs
+/demo-site
+# Generated dbdocs demo, bundled into the docs site at /demo/ at build time.
+/docs/demo
 
 # mypy
 .mypy_cache/

@@ -1,0 +1,171 @@
+site_name: dbdocs — alternative dbt docs
+site_url: https://dbdocs.datnguye.me/
+site_author: Dat Nguyen
+site_description: An alternative dbt docs site — catalog + ERD + column-level lineage, baked into one self-contained file
+
+repo_name: datnguye/dbt-docs
+repo_url: https://github.com/datnguye/dbt-docs
+edit_uri: edit/main/docs/
+
+copyright: Copyright &copy; 2024-2026 Dat Nguyen
+
+exclude_docs: |
+  dbdocs-demo.yml
+
+nav:
+  - dbdocs:
+    - index.md
+    - Live Demo ↗️: '/demo/" target="_blank'
+    - User Guide 📖:
+      - Quickstart: nav/guide/quickstart.md
+      - Configuration: nav/guide/configuration.md
+      - CLI Reference: nav/guide/cli-references.md
+      - How It Works: nav/guide/how-it-works.md
+      - Versioned Deploy: nav/guide/versioned-deploy.md
+    - Features 🧩:
+      - Catalog & ERD: nav/features/catalog.md
+      - Lineage DAG: nav/features/graphs.md
+      - Column-Level Lineage: nav/features/column-lineage.md
+    - Development 🛠️:
+      - Contributing Guide ❤️: nav/development/contributing-guide.md
+    - License 🔑: license.md
+    - Change Log ↗️: 'https://github.com/datnguye/dbt-docs/releases" target="_blank'
+
+theme:
+  name: material
+  custom_dir: docs/overrides
+  features:
+    - announce.dismiss
+    - content.action.edit
+    - content.action.view
+    - content.code.annotate
+    - content.code.copy
+    - content.tooltips
+    - navigation.footer
+    - navigation.indexes
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - search.share
+    - search.suggest
+    - toc.follow
+
+  palette:
+    - media: "(prefers-color-scheme)"
+      primary: black
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: black
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      toggle:
+        icon: material/brightness-4
+        name: Switch to system preference
+
+  font:
+    text: Roboto
+    code: Roboto Mono
+  favicon: assets/favicon.svg
+  logo: assets/logo.svg
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search:
+      separator: '[\s\-,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+  - minify:
+      minify_html: true
+  - offline
+
+extra:
+  version:
+    provider: mike
+  annotate:
+    json: [.s2]
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/datnguye
+    - icon: fontawesome/brands/linkedin
+      link: https://www.linkedin.com/in/tuiladat/
+  consent:
+    title: Cookie consent
+    description: >-
+      We use cookies to recognize your repeated visits and preferences, as well
+      as to measure the effectiveness of our documentation and whether users
+      find what they're searching for. With your consent, you're helping us to
+      make our documentation better.
+  analytics:
+    feedback:
+      title: Was this page helpful?
+      ratings:
+        - icon: material/heart
+          name: This page was helpful
+          data: 1
+          note: >-
+            Thanks for your feedback!
+        - icon: material/heart-broken
+          name: This page could be improved
+          data: 0
+          note: >-
+            Thanks for your feedback! Help us improve this page by
+            using our <a href="https://github.com/datnguye/dbt-docs/issues/new/?title=[Feedback]+{title}+-+{url}" target=_blank>feedback form</a>.
+
+extra_css:
+  - assets/css/termynal.css
+  - assets/css/theme.css
+
+extra_javascript:
+  - assets/js/feedback.js
+  - assets/js/termynal.js
+  - assets/js/custom.js
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details:
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      repo_url_shorthand: true
+      user: squidfunk
+      repo: mkdocs-material
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+      preserve_tabs: true
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+  - codehilite:
+      guess_lang: false

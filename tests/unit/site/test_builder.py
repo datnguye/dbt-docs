@@ -47,7 +47,9 @@ def _patch_boundaries(monkeypatch, fake_manifest, fake_catalog):
         "dbdocs.site.builder.load_artifacts", lambda target_path: (fake_manifest, fake_catalog)
     )
     monkeypatch.setattr("dbdocs.site.builder.adapter_type", lambda target_path: "snowflake")
-    monkeypatch.setattr("dbdocs.site.builder.build_erd", lambda options: _FakeErd())
+    monkeypatch.setattr(
+        "dbdocs.site.builder.build_erd", lambda options, artifacts_dir=None: _FakeErd()
+    )
 
 
 def test_build_data_assembles_all_sections(monkeypatch, config, fake_manifest, fake_catalog):
@@ -140,6 +142,22 @@ def test_build_erd_handles_no_options(monkeypatch):
     monkeypatch.setattr(erd_mod, "DbtErd", lambda **kw: captured.update(kw) or captured)
     erd_mod.build_erd(None)
     assert captured == {"target": "json"}
+
+
+def test_build_erd_threads_artifacts_dir(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(erd_mod, "DbtErd", lambda **kw: captured.update(kw) or captured)
+    erd_mod.build_erd(None, artifacts_dir="custom/target")
+    # dbterd reads the manifest/catalog from this dir, not the default ./target.
+    assert captured == {"target": "json", "artifacts_dir": "custom/target"}
+
+
+def test_build_erd_explicit_artifacts_dir_wins(monkeypatch):
+    captured = {}
+    monkeypatch.setattr(erd_mod, "DbtErd", lambda **kw: captured.update(kw) or captured)
+    erd_mod.build_erd({"artifacts_dir": "from/options"}, artifacts_dir="from/config")
+    # An explicit artifacts_dir in the dbterd: block takes precedence.
+    assert captured["artifacts_dir"] == "from/options"
 
 
 def test_read_readme_present(monkeypatch, config, fake_manifest, fake_catalog, tmp_path):

@@ -41,7 +41,7 @@ class ReportBuilder:
         tree = build_tree(nodes)
         graph = LineageGraph(manifest, node_ids=set(nodes)).build()
 
-        erd = build_erd(self.config.dbterd)
+        erd = build_erd(self.config.dbterd, artifacts_dir=target_path)
         erd_data = build_erd_data(erd)
 
         dialect = self.config.dialect or adapter
