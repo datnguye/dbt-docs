@@ -15,7 +15,7 @@ exclude_docs: |
 nav:
   - dbdocs:
     - index.md
-    - Live Demo ↗️: '/demo/" target="_blank'
+    - Live Demo ↗️: '/latest/demo/" target="_blank'
     - User Guide 📖:
       - Quickstart: nav/guide/quickstart.md
       - Configuration: nav/guide/configuration.md

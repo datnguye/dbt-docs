@@ -81,16 +81,17 @@ Two distinct "docs" live here — don't conflate them:
   `gh-pages` branch by `.github/workflows/publish-docs.yml`. It builds into
   `site-docs/`. The "no mkdocs" rule is about the *product*, not this repo's docs.
 - **A live demo** is built from the committed `tests/fixtures/jaffle_shop`
-  artifacts via `docs/dbdocs-demo.yml` and published to `gh-pages` under `/demo`
-  by `.github/workflows/build-demo.yml` (`keep_files: true`, so it coexists with
-  the mike docs). It builds into `demo-site/`.
+  artifacts via `docs/dbdocs-demo.yml` into `docs/demo/` (gitignored), so the
+  same `publish-docs.yml` run bundles it through mkdocs. There is no separate
+  `build-demo.yml`. Because mike nests every page under the version alias, the
+  demo lands at **`/latest/demo/`** (not top-level `/demo/`) — links point there.
 
 ### CI/CD
 
 GitHub Actions under `.github/workflows/`: `ci_pr.yml` (lint + 100%-coverage
 tests across Python 3.10–3.13 on Linux/macOS/Windows), `pypi-publish.yml`
-(trusted-publisher PyPI release on tag push), `publish-docs.yml` (mike deploy),
-`build-demo.yml` (jaffle_shop demo), `stale.yml`.
+(trusted-publisher PyPI release on tag push), `publish-docs.yml` (mike deploy +
+the bundled jaffle_shop demo), `stale.yml`.
 
 ### CLI lifecycle
 

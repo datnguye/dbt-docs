@@ -8,7 +8,7 @@
 
 Turn your dbt artifacts into a single self-contained `index.html`: a browsable catalog, an interactive lineage DAG and ERD, and **column-level lineage** derived straight from your compiled SQL. No server, no database, no build step — just a file you can open or host anywhere.
 
-[:rocket: Try the live demo](/demo/){ .md-button .md-button--primary target="_blank" }
+[:rocket: Try the live demo](/latest/demo/){ .md-button .md-button--primary target="_blank" }
 [Quickstart](./nav/guide/quickstart.md){ .md-button }
 
 The demo is a real dbdocs site built from the
