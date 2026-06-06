@@ -93,7 +93,7 @@ extra:
     - icon: fontawesome/brands/github
       link: https://github.com/datnguye
     - icon: fontawesome/brands/linkedin
-      link: https://www.linkedin.com/in/tuiladat/
+      link: https://www.linkedin.com/in/datnguye/
   consent:
     title: Cookie consent
     description: >-
@@ -102,6 +102,8 @@ extra:
       find what they're searching for. With your consent, you're helping us to
       make our documentation better.
   analytics:
+    provider: google
+    property: G-2VCVJ0SLS6
     feedback:
       title: Was this page helpful?
       ratings:
