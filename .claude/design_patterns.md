@@ -82,8 +82,19 @@ lineage API. **Per-model failures are caught, logged, and skipped** — one
 unparseable model must never sink the whole `generate`; the run reports how many
 were skipped via `self.skipped`.
 
-- `dbdocs/extract/column_lineage.py` — `class ColumnLineageExtractor`, `def extract`
-- `dbdocs/extract/_sqlglot_lineage.py` — `def lineage`, `def to_node` (vendored; omitted from coverage)
+**Scope is built once per model, not once per column.** Parse + qualify +
+`build_scope` is the expensive half of lineage and is identical for every output
+column of a model. `_extract_model` calls `prepare_scope(compiled, …)` once and
+passes the resulting `scope` to `lineage(column, …, scope=scope)` per column —
+turning the per-model cost from `O(columns × parse)` into `O(parse + columns)`.
+This is what keeps `generate` tractable on 1000–3000+ model projects (a 50-column
+model goes from 50 qualify passes to 1). The shared scope is read-only across
+columns — `to_node` builds fresh `Node`s and a fresh `visited` set per call — so
+reuse is safe. Don't reintroduce a per-column `lineage(column, compiled, …)` call
+that re-parses.
+
+- `dbdocs/extract/column_lineage.py` — `class ColumnLineageExtractor`, `def extract`, `def _extract_model`
+- `dbdocs/extract/_sqlglot_lineage.py` — `def prepare_scope`, `def lineage`, `def to_node` (vendored; omitted from coverage)
 
 ## Bundled SPA directory resolution
 

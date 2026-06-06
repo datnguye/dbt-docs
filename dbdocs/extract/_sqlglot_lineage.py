@@ -44,6 +44,44 @@ class Node:
             yield from d.walk()
 
 
+def prepare_scope(
+    sql: str | exp.Expression,
+    schema: dict | Schema | None = None,
+    sources: t.Mapping[str, str | exp.Query] | None = None,
+    dialect: DialectType = None,
+    **kwargs,
+) -> Scope:
+    """Parse, qualify, and build the optimizer scope for a SQL query once.
+
+    The expensive half of :func:`lineage`. Callers tracing many columns of one
+    query build the scope here and reuse it across :func:`lineage` calls.
+    """
+    expression = maybe_parse(sql, dialect=dialect)
+
+    if sources:
+        expression = exp.expand(
+            expression,
+            {k: t.cast(exp.Query, maybe_parse(v, dialect=dialect)) for k, v in sources.items()},
+            dialect=dialect,
+        )
+
+    expression = qualify.qualify(
+        expression,
+        dialect=dialect,
+        schema=schema,
+        **{
+            "validate_qualify_columns": False,
+            "identify": False,
+            "allow_partial_qualification": True,
+            **kwargs,
+        },
+    )
+    scope = build_scope(expression)
+    if not scope:
+        raise SqlglotError("Cannot build lineage, sql must be SELECT")
+    return scope
+
+
 def lineage(
     column: str | exp.Column,
     sql: str | exp.Expression,
@@ -54,33 +92,15 @@ def lineage(
     trim_selects: bool = True,
     **kwargs,
 ) -> Node:
-    """Build the lineage graph for a column of a SQL query."""
-    expression = maybe_parse(sql, dialect=dialect)
+    """Build the lineage graph for a column of a SQL query.
+
+    Pass a prebuilt ``scope`` (from :func:`prepare_scope`) to skip the per-call
+    parse/qualify/build_scope when tracing many columns of the same query.
+    """
     column = normalize_identifiers.normalize_identifiers(column, dialect=dialect).name
 
-    if sources:
-        expression = exp.expand(
-            expression,
-            {k: t.cast(exp.Query, maybe_parse(v, dialect=dialect)) for k, v in sources.items()},
-            dialect=dialect,
-        )
-
     if not scope:
-        expression = qualify.qualify(
-            expression,
-            dialect=dialect,
-            schema=schema,
-            **{
-                "validate_qualify_columns": False,
-                "identify": False,
-                "allow_partial_qualification": True,
-                **kwargs,
-            },
-        )
-        scope = build_scope(expression)
-
-    if not scope:
-        raise SqlglotError("Cannot build lineage, sql must be SELECT")
+        scope = prepare_scope(sql, schema=schema, sources=sources, dialect=dialect, **kwargs)
 
     select_names_original = {select.alias_or_name for select in scope.expression.selects}
     select_names_lower = {name.lower(): name for name in select_names_original}

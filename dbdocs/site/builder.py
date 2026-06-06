@@ -115,8 +115,10 @@ class ReportBuilder:
         data = self.build_data()
         index = out / "index.html"
         index.write_text(inject(index.read_text(encoding="utf-8"), data), encoding="utf-8")
+        # Compact, not indented — keeps the debug dump cheap on large projects.
         (out / "dbdocs-data.json").write_text(
-            json.dumps(data, indent=2, default=self._json_default), encoding="utf-8"
+            json.dumps(data, separators=(",", ":"), default=self._json_default),
+            encoding="utf-8",
         )
 
         logger.info(

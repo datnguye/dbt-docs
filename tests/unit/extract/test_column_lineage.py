@@ -4,6 +4,7 @@ from sqlglot import exp
 
 from dbdocs.extract import column_lineage
 from dbdocs.extract.column_lineage import ColumnLineageExtractor, _to_dialect
+from tests.conftest import column
 
 
 def test_to_dialect_aliases_and_passthrough():
@@ -46,6 +47,29 @@ def test_extract_falls_back_to_catalog_columns(fake_manifest, fake_catalog):
     extractor = ColumnLineageExtractor(fake_manifest, fake_catalog, dialect="snowflake")
     result = extractor.extract()
     assert "model.shop.stg_customers.id" in result
+
+
+def test_extract_returns_early_for_model_without_columns(fake_manifest, fake_catalog):
+    # Drop both the manifest columns and the catalog node so there are no output
+    # columns to trace — _extract_model bails before building a scope.
+    fake_manifest.nodes["model.shop.customers"].columns = {}
+    del fake_catalog.nodes["model.shop.customers"]
+    extractor = ColumnLineageExtractor(fake_manifest, fake_catalog, dialect="snowflake")
+    result = extractor.extract()
+    assert not any(k.startswith("model.shop.customers.") for k in result)
+    # The other model is unaffected.
+    assert "model.shop.stg_customers.id" in result
+
+
+def test_extract_skips_column_absent_from_select(fake_manifest, fake_catalog):
+    # A declared column that the compiled SELECT doesn't actually project: the
+    # shared scope builds fine, but tracing that one column raises and is skipped
+    # while the real columns still resolve.
+    fake_manifest.nodes["model.shop.customers"].columns["ghost"] = column("ghost")
+    extractor = ColumnLineageExtractor(fake_manifest, fake_catalog, dialect="snowflake")
+    result = extractor.extract()
+    assert "model.shop.customers.ghost" not in result
+    assert "model.shop.customers.id" in result
 
 
 def test_relation_index_and_map_table(fake_manifest, fake_catalog):

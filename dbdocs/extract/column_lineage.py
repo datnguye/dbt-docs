@@ -20,7 +20,7 @@ from sqlglot.errors import SqlglotError
 from dbdocs.core.artifacts import db_schema, node_name
 from dbdocs.core.exceptions import LineageError
 from dbdocs.core.log import logger
-from dbdocs.extract._sqlglot_lineage import Node, lineage
+from dbdocs.extract._sqlglot_lineage import Node, lineage, prepare_scope
 
 #: dbt adapter_type → sqlglot dialect, when the names differ. Most match 1:1.
 _DIALECT_ALIASES = {
@@ -80,9 +80,14 @@ class ColumnLineageExtractor:
             output_columns = (
                 list(getattr(catalog_node, "columns", {}) or {}) if catalog_node else []
             )
+        if not output_columns:
+            return
+        # Build the scope once per model, then trace each column against it —
+        # qualify is the expensive part and is identical for every column.
+        scope = prepare_scope(compiled, schema=self.schema, dialect=self.dialect)
         for column in output_columns:
             try:
-                root = lineage(column, compiled, schema=self.schema, dialect=self.dialect)
+                root = lineage(column, compiled, dialect=self.dialect, scope=scope)
             except SqlglotError:
                 # One unresolvable column shouldn't drop the rest of the model.
                 continue

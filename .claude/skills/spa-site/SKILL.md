@@ -97,7 +97,8 @@ The data dict is JSON-serialized, **base64-encoded**, and embedded as
 (quote- and newline-laden) SQL payload can never break out of the string
 literal. The bundled shell carries a `<!-- DBDOCS_DATA -->` marker as the
 insertion point (falling back to before `</head>`). `generate` also writes the
-same dict to `dbdocs-data.json` for debugging.
+same dict to `dbdocs-data.json` for debugging — **compact** (no indentation), so
+it stays cheap on large projects; pipe it through `jq` to read it.
 
 ## Bundle layout
 
