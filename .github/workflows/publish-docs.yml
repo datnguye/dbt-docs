@@ -44,7 +44,6 @@ jobs:
         run: uv sync --group docs
 
       - name: Build the live demo from jaffle_shop fixtures
-        # Generates into docs/demo so mkdocs bundles it at /demo/.
         run: uv run dbdocs -c docs/dbdocs-demo.yml generate
 
       - name: Configure Git user

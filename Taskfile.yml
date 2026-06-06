@@ -61,7 +61,7 @@ tasks:
       - uv run dbdocs deploy {{.CLI_ARGS}}
 
   demo:
-    desc: Build the live demo from jaffle_shop fixtures into docs/demo (bundled by mkdocs at /demo/).
+    desc: Build the live demo from jaffle_shop fixtures into docs/demo (bundled by mkdocs at /latest/demo/).
     cmds:
       - uv run dbdocs -c docs/dbdocs-demo.yml generate
 
