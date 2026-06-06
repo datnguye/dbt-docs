@@ -1,0 +1,202 @@
+/* Graph bundle styles. Colors come from the SPA's :root CSS vars (style.css) so
+   the React Flow surfaces match the active dark/light theme. */
+
+.dbd-graph {
+  display: flex;
+  flex-direction: column;
+  height: 72vh;
+  border: 1px solid var(--border, #e3e6ea);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-soft, #f5f6f8);
+}
+.dbd-canvas {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ERD lock/unlock bar (global ERD only) */
+.dbd-erd-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border, #e3e6ea);
+  background: var(--bg-elev, #fff);
+}
+.dbd-lock-btn {
+  padding: 4px 12px;
+  border: 1px solid var(--border, #e3e6ea);
+  border-radius: 6px;
+  background: var(--bg-soft, #f5f6f8);
+  color: var(--text-soft, #5b636c);
+  font-size: 12px;
+  cursor: pointer;
+}
+.dbd-lock-btn:hover { border-color: var(--accent, #2f6feb); }
+.dbd-lock-btn.on { color: var(--accent, #2f6feb); border-color: var(--accent, #2f6feb); }
+
+/* Selectable edges show a pointer + thicken on hover. */
+.react-flow__edge { cursor: pointer; }
+.react-flow__edge:hover .react-flow__edge-path { stroke-width: 2.5; }
+.react-flow__attribution {
+  display: none;
+}
+
+/* React Flow Controls — follow the active dark/light theme (defaults are a
+   fixed light palette that vanishes on a dark canvas). */
+.react-flow__controls {
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  background: var(--bg-elev, #fff);
+  border-bottom: 1px solid var(--border, #e3e6ea);
+  color: var(--text, #1c2024);
+  fill: var(--text, #1c2024);
+  width: 26px;
+  height: 26px;
+}
+.react-flow__controls-button:hover {
+  background: var(--bg-soft, #f5f6f8);
+}
+.react-flow__controls-button svg {
+  fill: currentColor;
+  max-width: 14px;
+  max-height: 14px;
+}
+
+/* MiniMap — themed surface + node colors via the mask. */
+.react-flow__minimap {
+  background: var(--bg-elev, #fff);
+  border: 1px solid var(--border, #e3e6ea);
+  border-radius: 6px;
+}
+.react-flow__minimap-mask {
+  fill: rgba(127, 127, 127, 0.18);
+}
+
+/* Background dots: dim on dark, subtle on light. */
+.react-flow__background { color: var(--border, #e3e6ea); }
+
+.dbd-toolbar {
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border, #e3e6ea);
+  background: var(--bg-elev, #fff);
+}
+.dbd-toolbar input,
+.dbd-toolbar select {
+  padding: 5px 9px;
+  border: 1px solid var(--border, #e3e6ea);
+  border-radius: 6px;
+  background: var(--bg-soft, #f5f6f8);
+  color: var(--text, #1c2024);
+  font-size: 13px;
+}
+
+/* Lineage node */
+.dbd-node {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 150px;
+  padding: 7px 12px;
+  border: 1px solid var(--border, #e3e6ea);
+  border-radius: 6px;
+  background: var(--bg-elev, #fff);
+  color: var(--text, #1c2024);
+  font-size: 12px;
+}
+.dbd-node-bar {
+  width: 4px;
+  height: 18px;
+  border-radius: 2px;
+}
+.dbd-node-label {
+  font-weight: 600;
+}
+.dbd-dim {
+  opacity: 0.25;
+}
+
+/* ERD table node */
+.dbd-erd {
+  min-width: 210px;
+  border: 1px solid var(--border, #e3e6ea);
+  border-radius: 8px;
+  background: var(--bg-elev, #fff);
+  color: var(--text, #1c2024);
+  overflow: hidden;
+  font-size: 12px;
+}
+.dbd-erd-focus {
+  box-shadow: 0 0 0 2px var(--accent, #2f6feb);
+}
+.dbd-erd-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-top: 3px solid var(--border, #888);
+  background: var(--bg-soft, #f5f6f8);
+}
+.dbd-erd-name {
+  font-weight: 700;
+}
+.dbd-erd-schema {
+  color: var(--text-soft, #5b636c);
+  font-size: 11px;
+}
+.dbd-erd-cols {
+  display: flex;
+  flex-direction: column;
+}
+.dbd-erd-col {
+  position: relative; /* anchor the per-column connection handles */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  border-top: 1px solid var(--border, #e3e6ea);
+}
+.dbd-erd-colname {
+  font-family: monospace;
+  flex: 1;
+}
+.dbd-erd-coltype {
+  color: var(--text-soft, #5b636c);
+  font-size: 11px;
+}
+.dbd-erd-badge {
+  display: inline-flex;
+  justify-content: center;
+  min-width: 22px; /* reserve the badge column so names align with/without PK/FK */
+  font-size: 10px;
+  font-weight: 700;
+  padding: 0 5px;
+  border-radius: 4px;
+  color: #fff;
+}
+.dbd-erd-badge.dbd-none { background: transparent; }
+.dbd-pk {
+  background: var(--seed, #b45309);
+}
+.dbd-fk {
+  background: var(--accent, #2f6feb);
+}
+
+/* Connection handles stay functional (edges anchor to the exact column rows)
+   but are invisible — no dot on every row. They only matter as edge endpoints. */
+.react-flow__handle.dbd-h-col,
+.react-flow__handle.dbd-h-table {
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  background: transparent;
+  border: none;
+  opacity: 0;
+}

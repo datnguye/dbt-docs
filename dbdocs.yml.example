@@ -1,0 +1,49 @@
+# dbdocs.yml — site configuration for `dbdocs`.
+#
+# Every key is optional; omit the file entirely to accept all defaults. Copy
+# this to `dbdocs.yml` and edit. `version` is NOT configured here — it is a
+# `dbdocs deploy --version` argument.
+
+# Site display metadata (injected into the generated single-page site).
+site_name: dbt docs
+site_url: https://github.com/datnguye/dbt-docs
+site_author: Dat Nguyen
+site_description: Alternative dbt documentation site
+repo_name: datnguye/dbt-docs
+repo_url: https://github.com/datnguye/dbt-docs
+project_name: dbt docs
+
+# The footer shows a "Buy me a coffee" badge by default. Set this to false to
+# suppress it.
+show_buy_me_a_coffee: true
+
+# Project README (markdown) rendered on the overview, after the ERD. Path is
+# relative to the working directory; set empty to omit the section. A missing
+# file is fine — the section simply won't appear.
+readme: README.md
+
+# Directory holding the dbt artifacts (manifest.json / catalog.json), relative
+# to the working directory. dbterd also reads from here.
+target_dir: target
+
+# Directory the generated self-contained site is written into. Defaults to
+# target/site (nested under the dbt target/ dir).
+output_dir: target/site
+
+# SQL dialect for column-level lineage parsing. Omit (or leave null) to derive
+# it from the artifact's adapter_type (snowflake, bigquery, postgres, …).
+# dialect: snowflake
+
+# Alias the version switcher treats as the default landing version.
+default_version: latest
+
+# dbterd ERD options — passed straight to DbtErd (use underscore keys, not the
+# kebab-case of a standalone .dbterd.yml). Configure the ERD here so everything
+# lives in dbdocs.yml. Omit the block to use dbterd's defaults.
+# dbterd:
+#   algo: model_contract          # FK detection: model contracts or relationship tests
+#   entity_name_format: model     # short node labels
+#   resource_type:
+#     - model
+#   select:
+#     - wildcard:model.my_project.mart_*

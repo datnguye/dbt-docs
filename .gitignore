@@ -133,3 +133,32 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Ruff
+.ruff_cache/
+
+# Local Claude settings + personal agent memory
+.claude/settings.local.json
+.claude/agent-memory-local/
+
+# Frontend (React Flow graph bundle) — Node.js toolchain artifacts
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+frontend/*.tsbuildinfo
+.eslintcache
+
+# npm / yarn / pnpm logs & debug output
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# The BUILT graph bundle IS committed (shipped in the wheel) — do not ignore it.
+!dbdocs/site/bundle/assets/graph/
+!dbdocs/site/bundle/assets/graph/**
+
+# dbdocs DEBUG file log
+logs/

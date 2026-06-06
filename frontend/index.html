@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>dbdocs graph (dev)</title>
+    <style>
+      body { margin: 0; }
+      #graph-root { height: 100vh; }
+    </style>
+  </head>
+  <body>
+    <!-- Dev harness: load some data onto window then mount. In production the
+         dbdocs SPA injects window.dbdocsData and calls window.dbdocsGraph.mount. -->
+    <div id="graph-root" data-mode="dag"></div>
+    <script type="module">
+      import "/src/main.tsx";
+      window.dbdocsData = window.dbdocsData || { nodes: {}, lineage: { edges: [], parents: {}, children: {} }, erd: { nodes: [], edges: [] } };
+      window.addEventListener("DOMContentLoaded", () => {
+        window.dbdocsGraph.mount(document.getElementById("graph-root"));
+      });
+    </script>
+  </body>
+</html>

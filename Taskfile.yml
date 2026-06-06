@@ -1,0 +1,74 @@
+version: "3"
+
+silent: true
+
+tasks:
+  default:
+    desc: List available tasks.
+    cmds:
+      - task --list
+
+  install:
+    desc: Sync the uv environment (incl. dev group).
+    cmds:
+      - uv sync --group dev
+
+  frontend:install:
+    desc: Install the React Flow graph app's npm deps (frontend/).
+    cmds:
+      - npm --prefix frontend ci
+
+  frontend:build:
+    desc: Build the React Flow graph bundle into the SPA (commit the output).
+    cmds:
+      - npm --prefix frontend run build
+
+  frontend:test:
+    desc: Run the graph app's vitest unit tests.
+    cmds:
+      - npm --prefix frontend test
+
+  format:
+    desc: Apply Ruff formatting and autofixes.
+    cmds:
+      - uv run ruff format .
+      - uv run ruff check --fix .
+
+  lint:
+    desc: Ruff format-check and lint (no writes).
+    cmds:
+      - uv run ruff format --check .
+      - uv run ruff check .
+
+  test:
+    desc: Pytest with the 100% coverage gate.
+    cmds:
+      - uv run pytest --cov=dbdocs --cov-report=term-missing --cov-fail-under=100
+
+  generate:
+    desc: Build the self-contained docs site into ./site.
+    cmds:
+      - uv run dbdocs generate
+
+  serve:
+    desc: Serve the generated site locally (static http server).
+    cmds:
+      - uv run dbdocs serve
+
+  deploy:
+    desc: 'Deploy a versioned build. Usage: task deploy -- --version 1.2 --alias latest'
+    cmds:
+      - uv run dbdocs deploy {{.CLI_ARGS}}
+
+  git-hooks:
+    desc: Install pre-commit and commit-msg git hooks.
+    cmds:
+      - uv run pre-commit install --install-hooks
+      - uv run pre-commit install --hook-type commit-msg
+
+  clean:
+    desc: Remove generated artefacts and caches (leaves .venv + node_modules intact).
+    cmds:
+      - rm -rf target site dist
+      - rm -rf .pytest_cache .ruff_cache .coverage coverage.xml
+      - rm -rf frontend/.vite frontend/coverage
