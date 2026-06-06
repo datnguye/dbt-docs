@@ -1,6 +1,6 @@
 [project]
 name = "dbdocs"
-version = "0.0.0"
+dynamic = ["version"]
 description = "Alternative dbt docs site: Catalog + ERD + column-level lineage"
 readme = "README.md"
 license = { text = "MIT" }
@@ -29,8 +29,11 @@ Repository = "https://github.com/datnguye/dbt-docs"
 dbdocs = "dbdocs.main:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
 
 [tool.hatch.build.targets.wheel]
 packages = ["dbdocs"]
