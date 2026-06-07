@@ -25,12 +25,21 @@ because `--alias latest` was given — copies the build into `site/latest/`. An
 alias is *moving*: deploying `1.3 --alias latest` shifts `latest` off `1.2` and
 onto `1.3` automatically.
 
+!!! note "Label format"
+    Both `--version` and `--alias` must match `[A-Za-z0-9._-]+` and cannot be
+    `.` or `..`. No spaces, slashes, or other path separators are allowed —
+    invalid values raise a `DeployError` before anything is written.
+
 | Want to…                        | Command                                            |
 |---------------------------------|----------------------------------------------------|
 | Deploy and tag as latest        | `dbdocs deploy --version 1.2 --alias latest`       |
 | Deploy a beta (no alias)        | `dbdocs deploy --version 1.3-beta`                 |
 | Give a version a display title  | `dbdocs deploy --version 1.2 --title "1.2 (LTS)"`  |
 | Remove a version + its aliases  | `dbdocs deploy --version 1.2 --delete`             |
+
+When `--delete` is used, all aliases associated with the version are read back
+from `versions.json` and validated against the same label rules before any
+directory is removed.
 
 ## Publishing to GitHub Pages
 

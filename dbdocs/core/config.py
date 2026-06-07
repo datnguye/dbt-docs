@@ -8,6 +8,23 @@ from dbdocs.core.exceptions import DbDocsConfigError
 DEFAULT_CONFIG_FILENAME = "dbdocs.yml"
 
 
+def _resolve_within_cwd(value: str, field_name: str) -> Path:
+    """Resolve *value* against cwd; reject a relative path that escapes the cwd.
+
+    An absolute *value* is resolved as-is (the caller's deliberate choice — this
+    is documented behaviour and must not be rejected).  A relative *value* is
+    resolved against ``Path.cwd()`` and then checked: if the result is not
+    inside (or equal to) the cwd, ``DbDocsConfigError`` is raised.
+    """
+    base = Path.cwd().resolve()
+    candidate = Path(value)
+    resolved = candidate if candidate.is_absolute() else (base / candidate)
+    resolved = resolved.resolve()
+    if not candidate.is_absolute() and resolved != base and base not in resolved.parents:
+        raise DbDocsConfigError(f"{field_name} {value!r} escapes the project directory ({base}).")
+    return resolved
+
+
 @dataclass
 class DbDocsConfig:
     """Site configuration for a dbdocs build.
@@ -103,8 +120,9 @@ class DbDocsConfig:
         directory **at access time** — this is intentional and must stay aligned
         with dbterd's ``DbtErd``, which also reads artifacts from ``./target``
         relative to the cwd. An absolute ``target_dir`` is returned unchanged.
+        A relative path that would escape the cwd raises ``DbDocsConfigError``.
         """
-        return str(Path.cwd() / self.target_dir)
+        return str(_resolve_within_cwd(self.target_dir, "target_dir"))
 
     @property
     def output_path(self) -> str:
@@ -113,5 +131,6 @@ class DbDocsConfig:
         Resolved against the cwd at access time, mirroring ``target_path`` — a
         relative ``output_dir`` follows the working directory, an absolute one is
         returned unchanged.
+        A relative path that would escape the cwd raises ``DbDocsConfigError``.
         """
-        return str(Path.cwd() / self.output_dir)
+        return str(_resolve_within_cwd(self.output_dir, "output_dir"))

@@ -9,11 +9,12 @@ data → write ``index.html`` + a debug ``dbdocs-data.json``.
 import json
 from datetime import datetime
 from pathlib import Path
-from shutil import copytree
+from shutil import copytree, rmtree
 from typing import Any
 
 from dbdocs.core.artifacts import adapter_type, load_artifacts
-from dbdocs.core.config import DbDocsConfig
+from dbdocs.core.config import DbDocsConfig, _resolve_within_cwd
+from dbdocs.core.exceptions import DbDocsConfigError
 from dbdocs.core.log import logger
 from dbdocs.extract.column_lineage import ColumnLineageExtractor
 from dbdocs.extract.erd import build_erd, build_erd_data
@@ -66,12 +67,16 @@ class ReportBuilder:
     def _read_readme(self) -> str:
         """The project README markdown (rendered on the overview), or ``""``.
 
-        ``config.readme`` is a path relative to the cwd; a missing file or an
-        empty config value just yields no README section.
+        ``config.readme`` is a path relative to the cwd; a missing file, an
+        empty config value, or a relative path that escapes the cwd all yield
+        no README section (fail-soft — a bad README must never sink generate).
         """
         if not self.config.readme:
             return ""
-        path = Path(self.config.readme)
+        try:
+            path = _resolve_within_cwd(self.config.readme, "readme")
+        except DbDocsConfigError:
+            return ""
         try:
             return path.read_text(encoding="utf-8")
         except OSError:
@@ -109,7 +114,9 @@ class ReportBuilder:
     def generate(self, output_dir: "str | None" = None) -> str:
         """Render the site into ``output_dir`` (or config's). Returns its path."""
         out = Path(output_dir) if output_dir else Path(self.config.output_path)
-        out.mkdir(parents=True, exist_ok=True)
+        if out.exists():
+            rmtree(out)
+        out.mkdir(parents=True)
         copytree(src=BUNDLE_DIR, dst=out, dirs_exist_ok=True)
 
         data = self.build_data()
@@ -117,7 +124,7 @@ class ReportBuilder:
         index.write_text(inject(index.read_text(encoding="utf-8"), data), encoding="utf-8")
         # Compact, not indented — keeps the debug dump cheap on large projects.
         (out / "dbdocs-data.json").write_text(
-            json.dumps(data, separators=(",", ":"), default=self._json_default),
+            json.dumps(data, separators=(",", ":"), sort_keys=True, default=self._json_default),
             encoding="utf-8",
         )
 

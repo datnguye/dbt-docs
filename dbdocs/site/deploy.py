@@ -14,6 +14,7 @@ the output dir onto a ``gh-pages`` branch and pushes it.
 """
 
 import json
+import re
 import subprocess
 from pathlib import Path
 from shutil import copytree, rmtree
@@ -24,6 +25,17 @@ from dbdocs.core.log import logger
 from dbdocs.site.builder import ReportBuilder
 
 VERSIONS_FILE = "versions.json"
+
+#: Allows only alphanumerics, dots, underscores, and hyphens — a safe single path segment.
+_SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9._-]+$")
+
+
+def _validate_segment(value: str, kind: str) -> None:
+    """Raise :class:`DeployError` if *value* is not a safe single path segment."""
+    if not _SAFE_SEGMENT.match(value) or value in {".", ".."}:
+        raise DeployError(
+            f"Invalid {kind} {value!r}: must match ^[A-Za-z0-9._-]+$ and not be '.' or '..'."
+        )
 
 
 def _read_versions(output_root: Path) -> list:
@@ -57,6 +69,9 @@ def deploy(
     title: "str | None" = None,
 ) -> str:
     """Generate ``version`` into the output root and update the version index."""
+    _validate_segment(version, "version")
+    if alias is not None:
+        _validate_segment(alias, "alias")
     output_root = Path(config.output_path)
     version_dir = output_root / version
     if version_dir.exists():
@@ -85,6 +100,7 @@ def delete(config: DbDocsConfig, version: str, push: bool = False) -> None:
 
     Raises :class:`DeployError` if the version isn't deployed.
     """
+    _validate_segment(version, "version")
     output_root = Path(config.output_path)
     versions = _read_versions(output_root)
     entry = next((v for v in versions if v.get("version") == version), None)
@@ -95,6 +111,7 @@ def delete(config: DbDocsConfig, version: str, push: bool = False) -> None:
     if version_dir.exists():
         rmtree(version_dir)
     for alias in entry.get("aliases", []):
+        _validate_segment(alias, "alias")
         alias_dir = output_root / alias
         if alias_dir.exists():
             rmtree(alias_dir)

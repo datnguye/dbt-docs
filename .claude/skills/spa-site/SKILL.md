@@ -92,13 +92,15 @@ SPA reads from `window.dbdocsData`:
 
 ## Injection (`dbdocs/site/inject.py`)
 
-The data dict is JSON-serialized, **base64-encoded**, and embedded as
+The data dict is JSON-serialized with `sort_keys=True` (deterministic output),
+**base64-encoded**, and embedded as
 `<script>window.dbdocsData = JSON.parse(atob("…"));</script>`. base64 means the
 (quote- and newline-laden) SQL payload can never break out of the string
 literal. The bundled shell carries a `<!-- DBDOCS_DATA -->` marker as the
 insertion point (falling back to before `</head>`). `generate` also writes the
-same dict to `dbdocs-data.json` for debugging — **compact** (no indentation), so
-it stays cheap on large projects; pipe it through `jq` to read it.
+same dict to `dbdocs-data.json` for debugging — **compact** (no indentation),
+`sort_keys=True`, so it stays cheap on large projects and diffs cleanly; pipe it
+through `jq` to read it.
 
 ## Bundle layout
 
@@ -118,8 +120,9 @@ dbdocs/site/bundle/
         └── minisearch.min.js     # client-side search index
 ```
 
-`generate` `copytree`s this whole dir into `output_dir`, then rewrites
-`index.html` with the injected data.
+`generate` removes the output dir first (`rmtree`) to guarantee a clean build
+— no stale assets from a prior run — then `copytree`s this whole dir into
+`output_dir`, and finally rewrites `index.html` with the injected data.
 
 ## The graph bundle (React Flow)
 
@@ -179,7 +182,10 @@ site/
 versions), and copies the build to the alias dir. The SPA reads `versions.json`
 to render its version dropdown. `--push` is **opt-in** (off by default) since it
 force-commits + force-pushes `output_dir` to the `gh-pages` branch —
-outward-facing.
+outward-facing. Both `deploy()` and `delete()` validate that `version` and every
+`alias` match `^[A-Za-z0-9._-]+$` and are not `.`/`..` (raises `DeployError`);
+`delete()` also validates aliases read back from `versions.json`, so a tampered
+index cannot cause path traversal.
 
 ## Rules
 

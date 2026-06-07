@@ -19,15 +19,19 @@ show_buy_me_a_coffee: true
 
 # Project README (markdown) rendered on the overview, after the ERD. Path is
 # relative to the working directory; set empty to omit the section. A missing
-# file is fine — the section simply won't appear.
+# file or a relative path that escapes the working directory (via ..) is
+# silently skipped — the section simply won't appear. Absolute paths are fine.
 readme: README.md
 
 # Directory holding the dbt artifacts (manifest.json / catalog.json), relative
-# to the working directory. dbterd also reads from here.
+# to the working directory. dbterd also reads from here. Relative paths cannot
+# use .. to escape the working directory (raises an error); absolute paths are
+# always accepted.
 target_dir: target
 
 # Directory the generated self-contained site is written into. Defaults to
-# target/site (nested under the dbt target/ dir).
+# target/site (nested under the dbt target/ dir). Same .. restriction as
+# target_dir — absolute paths are always accepted.
 output_dir: target/site
 
 # SQL dialect for column-level lineage parsing. Omit (or leave null) to derive

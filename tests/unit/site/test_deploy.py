@@ -124,3 +124,79 @@ def test_delete_when_dirs_already_gone(patched_builder, tmp_path):
     rmtree(tmp_path / "site" / "latest")
     deploy_mod.delete(cfg, version="1.0")
     assert json.loads((tmp_path / "site" / "versions.json").read_text()) == []
+
+
+# ---------------------------------------------------------------------------
+# _validate_segment tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("value", ["1.0", "latest", "v2-beta", "v2_rc1", "abc123"])
+def test_validate_segment_accepts_safe_values(value):
+    deploy_mod._validate_segment(value, "version")  # must not raise
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "..",
+        ".",
+        "foo/bar",
+        "foo\\bar",
+        "../etc",
+        "",
+        "has space",
+        "na!me",
+    ],
+)
+def test_validate_segment_rejects_unsafe_values(value):
+    with pytest.raises(DeployError, match="Invalid version"):
+        deploy_mod._validate_segment(value, "version")
+
+
+def test_deploy_rejects_unsafe_version(patched_builder, tmp_path):
+    cfg = DbDocsConfig(output_dir=str(tmp_path / "site"))
+    with pytest.raises(DeployError, match="Invalid version"):
+        deploy_mod.deploy(cfg, version="../evil")
+
+
+def test_deploy_rejects_unsafe_alias(patched_builder, tmp_path):
+    cfg = DbDocsConfig(output_dir=str(tmp_path / "site"))
+    with pytest.raises(DeployError, match="Invalid alias"):
+        deploy_mod.deploy(cfg, version="1.0", alias="../evil")
+
+
+def test_delete_rejects_unsafe_version(patched_builder, tmp_path):
+    cfg = DbDocsConfig(output_dir=str(tmp_path / "site"))
+    with pytest.raises(DeployError, match="Invalid version"):
+        deploy_mod.delete(cfg, version="..")
+
+
+def test_deploy_dotdot_version_rejected(patched_builder, tmp_path):
+    cfg = DbDocsConfig(output_dir=str(tmp_path / "site"))
+    with pytest.raises(DeployError, match="Invalid version"):
+        deploy_mod.deploy(cfg, version="..")
+
+
+def test_deploy_dot_version_rejected(patched_builder, tmp_path):
+    cfg = DbDocsConfig(output_dir=str(tmp_path / "site"))
+    with pytest.raises(DeployError, match="Invalid version"):
+        deploy_mod.deploy(cfg, version=".")
+
+
+def test_delete_rejects_malicious_alias_in_versions_json(patched_builder, tmp_path):
+    # Simulate a tampered versions.json where an alias contains a path-traversal
+    # segment that would escape the output tree if passed directly to rmtree.
+    site = tmp_path / "site"
+    site.mkdir(parents=True)
+    evil_target = tmp_path / "evil"
+    evil_target.mkdir()
+    versions_data = [{"version": "1.0", "title": "1.0", "aliases": ["../evil"]}]
+    (site / "versions.json").write_text(json.dumps(versions_data), encoding="utf-8")
+
+    cfg = DbDocsConfig(output_dir=str(site))
+    with pytest.raises(DeployError, match="Invalid alias"):
+        deploy_mod.delete(cfg, version="1.0")
+
+    # The would-be target must NOT have been removed.
+    assert evil_target.exists()

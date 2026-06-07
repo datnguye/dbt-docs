@@ -67,3 +67,7 @@ dbdocs deploy --version 1.2 --alias latest --push
 | `--title`             | the version| Display title for this version.                   |
 | `--delete`            | off        | Delete this version instead of deploying it.      |
 | `--push / --no-push`  | `--no-push`| Publish to the `gh-pages` branch (opt-in).        |
+
+`--version` and `--alias` must match `[A-Za-z0-9._-]+` and cannot be `.` or
+`..` — no spaces, slashes, or path separators. Invalid values raise a
+`DeployError` before any files are touched.

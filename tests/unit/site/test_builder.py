@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from dbdocs.extract import erd as erd_mod
 from dbdocs.site.builder import ReportBuilder
 
@@ -179,3 +181,54 @@ def test_read_readme_disabled_is_empty(monkeypatch, config, fake_manifest, fake_
     _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
     config.readme = ""
     assert ReportBuilder(config).build_data()["readme"] == ""
+
+
+def test_read_readme_escaping_relative_path_returns_empty(
+    monkeypatch, config, fake_manifest, fake_catalog, tmp_path
+):
+    """A relative readme path that climbs out of cwd must silently yield ''."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    monkeypatch.chdir(tmp_path)
+    config.readme = "../../../secret"
+    assert ReportBuilder(config).build_data()["readme"] == ""
+
+
+@pytest.mark.parametrize("readme_val", ["README.md", "docs/README.md"])
+def test_read_readme_within_cwd_relative_works(
+    monkeypatch, config, fake_manifest, fake_catalog, tmp_path, readme_val
+):
+    """A relative readme path that stays inside cwd resolves and is read."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    monkeypatch.chdir(tmp_path)
+    readme_path = tmp_path / readme_val
+    readme_path.parent.mkdir(parents=True, exist_ok=True)
+    readme_path.write_text("# Project\n", encoding="utf-8")
+    config.readme = readme_val
+    assert ReportBuilder(config).build_data()["readme"] == "# Project\n"
+
+
+def test_generate_removes_stale_files_on_rerun(monkeypatch, config, fake_manifest, fake_catalog):
+    """Files that existed before re-generate must be gone afterwards."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    builder = ReportBuilder(config)
+    out = Path(builder.generate())
+
+    # Plant a stale file that should NOT survive the next generate.
+    stale = out / "stale_asset.js"
+    stale.write_text("old stuff", encoding="utf-8")
+    assert stale.is_file()
+
+    builder.generate()
+    assert not stale.is_file()
+
+
+def test_generate_dbdocs_data_json_keys_are_sorted(
+    monkeypatch, config, fake_manifest, fake_catalog
+):
+    """dbdocs-data.json must have deterministically sorted keys."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+    raw = (out / "dbdocs-data.json").read_text(encoding="utf-8")
+    parsed = json.loads(raw)
+    # Re-dump with sort_keys and compare — if already sorted, they must match.
+    assert raw == json.dumps(parsed, separators=(",", ":"), sort_keys=True, default=str)

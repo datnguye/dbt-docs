@@ -91,3 +91,53 @@ def test_relative_paths_follow_cwd(tmp_path, monkeypatch):
     cfg = DbDocsConfig(target_dir="target", output_dir="site")
     assert cfg.target_path == str(tmp_path / "target")
     assert cfg.output_path == str(tmp_path / "site")
+
+
+# ---------------------------------------------------------------------------
+# _resolve_within_cwd — containment checks
+# ---------------------------------------------------------------------------
+
+
+def test_output_dir_relative_within_cwd_resolves(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cfg = DbDocsConfig(output_dir="target/site")
+    assert cfg.output_path == str(tmp_path / "target" / "site")
+
+
+def test_output_dir_relative_escaping_raises(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cfg = DbDocsConfig(output_dir="../escape")
+    with pytest.raises(DbDocsConfigError, match="output_dir.*escapes"):
+        _ = cfg.output_path
+
+
+def test_output_dir_absolute_is_returned_unchanged(tmp_path):
+    abs_out = str(tmp_path / "srv" / "www")
+    cfg = DbDocsConfig(output_dir=abs_out)
+    assert cfg.output_path == str((tmp_path / "srv" / "www").resolve())
+
+
+def test_target_dir_relative_within_cwd_resolves(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cfg = DbDocsConfig(target_dir="my/target")
+    assert cfg.target_path == str(tmp_path / "my" / "target")
+
+
+def test_target_dir_relative_escaping_raises(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    cfg = DbDocsConfig(target_dir="../../escape")
+    with pytest.raises(DbDocsConfigError, match="target_dir.*escapes"):
+        _ = cfg.target_path
+
+
+def test_target_dir_absolute_is_returned_unchanged(tmp_path):
+    abs_target = str(tmp_path / "data")
+    cfg = DbDocsConfig(target_dir=abs_target)
+    assert cfg.target_path == str((tmp_path / "data").resolve())
+
+
+def test_resolve_within_cwd_equal_to_base_is_allowed(tmp_path, monkeypatch):
+    """A path that resolves to exactly cwd (e.g. ".") must be accepted."""
+    monkeypatch.chdir(tmp_path)
+    cfg = DbDocsConfig(output_dir=".")
+    assert cfg.output_path == str(tmp_path.resolve())

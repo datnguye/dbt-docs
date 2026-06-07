@@ -23,7 +23,7 @@ These keys control what's displayed in the generated site's header and footer.
 | `repo_url`            | repo URL                         | Link to the source repo.                                  |
 | `project_name`        | `dbt docs`                       | dbt project display name.                                 |
 | `show_buy_me_a_coffee`| `true`                           | Show the "Buy me a coffee" badge in the footer.           |
-| `readme`              | `README.md`                      | Markdown file rendered on the overview, after the ERD. Set empty to omit; a missing file is silently skipped. |
+| `readme`              | `README.md`                      | Markdown file rendered on the overview, after the ERD. Set empty to omit; a missing file or a path that escapes the project directory is silently skipped. |
 
 ## Build control
 
@@ -35,6 +35,11 @@ These keys control the generate/deploy pipeline rather than display.
 | `output_dir`      | `target/site` | Where the generated site is written.                             |
 | `dialect`         | adapter type  | SQL dialect override for column-level lineage parsing. Omit to derive from the artifact's `adapter_type` (snowflake, bigquery, postgres, …). |
 | `default_version` | `latest`      | Alias the version switcher lands on.                             |
+
+!!! warning "Relative paths cannot escape the project directory"
+    Relative `target_dir` and `output_dir` values that use `..` to climb above
+    the working directory raise a `DbDocsConfigError`. Absolute paths (e.g.
+    `/tmp/site`) are always accepted.
 
 !!! note "`version` is not a config key"
     The deployed version is a `dbdocs deploy --version` argument, not a

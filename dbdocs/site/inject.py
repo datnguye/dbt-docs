@@ -16,9 +16,9 @@ INJECT_MARKER = "<!-- DBDOCS_DATA -->"
 
 def data_script(data: dict) -> str:
     """The ``<script>`` tag that sets ``window.dbdocsData`` from ``data``."""
-    payload = base64.b64encode(json.dumps(data, separators=(",", ":")).encode("utf-8")).decode(
-        "ascii"
-    )
+    payload = base64.b64encode(
+        json.dumps(data, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    ).decode("ascii")
     return f'<script>window.dbdocsData = JSON.parse(atob("{payload}"));</script>'
 
 

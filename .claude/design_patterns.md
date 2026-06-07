@@ -40,7 +40,9 @@ dict (`metadata`, `nodes` keyed by unique_id, `lineage`, `columnLineage`, `erd`,
 dict into `index.html` as `window.dbdocsData` (the marker `<!-- DBDOCS_DATA -->`,
 falling back to before `</head>`). The SPA reads `window.dbdocsData` and renders
 everything client-side. base64 keeps the quote/newline-laden JSON from breaking
-out of the `<script>` string. Do not invent a second render path — extend the
+out of the `<script>` string. The dict is serialized with `sort_keys=True` for
+deterministic, reproducible output (both the injected payload and the
+`dbdocs-data.json` debug dump). Do not invent a second render path — extend the
 data dict and the SPA that consumes it.
 
 - `dbdocs/site/builder.py` — `class ReportBuilder`, `def build_data`, `def generate`
@@ -54,9 +56,13 @@ display metadata from `config.render_context()` (which strips build-control
 fields — `target_dir`, `output_dir`, `dialect`, `default_version`) rather than
 hardcoding values. Unknown keys / malformed YAML raise `DbDocsConfigError` —
 never a bare `Exception`. `target_path` (artifacts in) and `output_path` (site
-out) resolve relative dirs against the cwd at access time.
+out) resolve relative dirs against the cwd at access time. Relative
+`target_dir`/`output_dir` values that escape the cwd via `..` raise
+`DbDocsConfigError`; absolute paths are accepted as-is. The same `..`-escape
+check applies to a relative `readme` path — an escaping path is silently
+treated as absent (fail-soft, returns "").
 
-- `dbdocs/core/config.py` — `class DbDocsConfig`, `def load`, `def render_context`, `def output_path`
+- `dbdocs/core/config.py` — `class DbDocsConfig`, `def load`, `def render_context`, `def output_path`, `def _resolve_within_cwd`
 - `dbdocs/core/exceptions.py` — `DbDocsConfigError`, `LineageError`, `DeployError`
 
 ## Centralized artifact loading + the schema\_ gotcha
@@ -100,11 +106,13 @@ that re-parses.
 
 `ReportBuilder` resolves the bundled SPA dir relative to the package
 (`dbdocs/site/bundle/`) from `__file__`, so the assets are found whether running
-from source or an installed wheel. `generate()` `copytree`s the whole bundle
-(shell + `assets/` incl. vendored UMD libs) into the output dir. This is why the
-`artifacts` glob in `pyproject.toml` must ship `dbdocs/site/bundle/**/*`.
+from source or an installed wheel. `generate()` removes the output dir first
+(`rmtree`) before `copytree`ing the whole bundle (shell + `assets/` incl.
+vendored UMD libs) — guaranteeing a clean build with no stale assets from a
+prior run. This is why the `artifacts` glob in `pyproject.toml` must ship
+`dbdocs/site/bundle/**/*`.
 
-- `dbdocs/site/builder.py` — `BUNDLE_DIR = Path(__file__).resolve().parent / "bundle"`
+- `dbdocs/site/builder.py` — `BUNDLE_DIR = Path(__file__).resolve().parent / "bundle"`, `def generate`
 
 ## Versioned deploy without mike
 
@@ -113,9 +121,13 @@ external tooling. `deploy()` generates into `site/<version>/`, maintains
 `site/versions.json` (moving a `--alias` to the new version and off others), and
 copies the build to each alias dir; the SPA reads `versions.json` and renders a
 version dropdown. `--push` is opt-in (off by default, outward-facing) and shells
-git to publish `gh-pages`, raising `DeployError` on a non-zero exit.
+git to publish `gh-pages`, raising `DeployError` on a non-zero exit. Both
+`deploy()` and `delete()` validate that `version` and every `alias` are safe
+single path segments matching `^[A-Za-z0-9._-]+$` and are not `.` or `..`,
+raising `DeployError` on violation — this includes aliases read back from
+`versions.json` during deletion (preventing path traversal from a tampered index).
 
-- `dbdocs/site/deploy.py` — `def deploy`, `def _upsert_version`, `def _push_gh_pages`
+- `dbdocs/site/deploy.py` — `def deploy`, `def _upsert_version`, `def _push_gh_pages`, `def _validate_segment`
 
 ## Click group entrypoint
 

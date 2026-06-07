@@ -32,3 +32,16 @@ def test_inject_prepends_when_no_head():
     out = inject("<body>only</body>", {"k": "v"})
     assert out.startswith("<script>")
     assert _decode(out) == {"k": "v"}
+
+
+def test_data_script_keys_are_sorted():
+    # Two dicts with keys in reversed order must produce the same payload.
+    data_a = {"z": 1, "a": 2}
+    data_b = {"a": 2, "z": 1}
+    assert data_script(data_a) == data_script(data_b)
+
+
+def test_data_script_output_is_deterministic():
+    # Calling data_script twice with the same input must produce identical bytes.
+    data = {"nodes": {"b": 2, "a": 1}, "meta": "x"}
+    assert data_script(data) == data_script(data)
