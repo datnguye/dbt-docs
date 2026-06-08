@@ -166,3 +166,4 @@ pnpm-debug.log*
 
 # dbdocs DEBUG file log
 logs/
+.DS_Store

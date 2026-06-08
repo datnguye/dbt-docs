@@ -12,6 +12,7 @@ authoritative; grep it.
   - [One data dict + base64 injection](#one-data-dict--base64-injection)
   - [Config object from dbdocs.yml](#config-object-from-dbdocsyml)
   - [Centralized artifact loading + the schema\_ gotcha](#centralized-artifact-loading--the-schema_-gotcha)
+  - [Manifest-base columns, catalog-enriched](#manifest-base-columns-catalog-enriched)
   - [Fail-soft column-level lineage](#fail-soft-column-level-lineage)
   - [Bundled SPA directory resolution](#bundled-spa-directory-resolution)
   - [Versioned deploy without mike](#versioned-deploy-without-mike)
@@ -76,6 +77,23 @@ method*, not the value. Always read `schema_`; `db_schema(entity)` centralizes
 that with safe `_unknown` fallbacks. Never read `.schema` off a parsed node.
 
 - `dbdocs/core/artifacts.py` — `def load_artifacts`, `def adapter_type`, `def db_schema`, `NODE_PREFIXES`
+
+## Manifest-base columns, catalog-enriched
+
+A node's columns come from the **manifest** (the dbt YAML decides which columns
+are documented and carries their description/tags/`data_type`); the **catalog**
+only *enriches* — it supplies the warehouse-confirmed type and appends any
+columns the manifest never documented. It never replaces the manifest, so a model
+absent from a stale/partial `catalog.json` still renders every documented column
+(just without a warehouse type). Manifest columns come first in manifest order;
+catalog-only columns are appended. The catalog keys columns by the warehouse's
+casing (Snowflake upper-cases them) while the manifest keeps the modeled casing,
+so the type lookup is **case-insensitive** and the displayed name stays the
+manifest's casing. Type falls back to the manifest `data_type` when the catalog
+has no entry. Don't reintroduce a catalog-driven loop that drops manifest columns
+when the catalog is empty.
+
+- `dbdocs/extract/nodes.py` — `def _columns`, `def _column_entry`
 
 ## Fail-soft column-level lineage
 

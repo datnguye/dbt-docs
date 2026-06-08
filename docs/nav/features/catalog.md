@@ -15,8 +15,11 @@ flat wall of 400 models.
 
 Open any node and you get:
 
-- **Columns** — name, type, tags, and description, pulled from the catalog and
-  your dbt YAML.
+- **Columns** — name, type, tags, and description. Your dbt YAML (the manifest)
+  is the source of truth for which columns are documented; the catalog *enriches*
+  them with the warehouse-confirmed type. So a model missing from a stale or
+  partial `catalog.json` still shows every documented column — just without the
+  warehouse type.
 - **Compiled and raw SQL** — toggle between what you wrote and what dbt sent to
   the warehouse.
 - **Resolved macros** — the macros each model expands, so you can trace where

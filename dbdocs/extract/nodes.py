@@ -12,27 +12,52 @@ from typing import Any
 from dbdocs.core.artifacts import NODE_PREFIXES, db_schema, node_name
 
 
-def _columns(model: Any, catalog_node: Any) -> list:
-    """Merge manifest column metadata (description/tags) with catalog types.
+def _column_entry(name: str, manifest_column: Any, col_type: str) -> dict:
+    """One column record. Newlines in the description become ``<br>`` for HTML."""
+    description = getattr(manifest_column, "description", "") or "" if manifest_column else ""
+    return {
+        "name": name,
+        "type": col_type or "",
+        "tags": (getattr(manifest_column, "tags", []) or []) if manifest_column else [],
+        "description": description.replace("\n", "<br>"),
+    }
 
-    Iterates the catalog's columns (the warehouse truth for which columns exist
-    and their types) and layers on the manifest description/tags when present.
-    Newlines in descriptions become ``<br>`` so they survive HTML rendering.
+
+def _columns(model: Any, catalog_node: Any) -> list:
+    """Build a node's columns: the manifest is the source of truth, the catalog
+    enriches it.
+
+    The **manifest** decides which columns are documented and carries their
+    metadata (description, tags, ``data_type``); the **catalog** *enriches* — it
+    supplies the warehouse-confirmed type and any columns the manifest didn't
+    document. It never replaces the manifest, so a model absent from a
+    stale/partial ``catalog.json`` still shows every documented column.
+
+    Manifest columns come first, in manifest order, each with its type enriched
+    from the catalog when present (falling back to the manifest ``data_type``).
+    The catalog keys columns by the warehouse's casing (Snowflake upper-cases
+    them) while the manifest keeps the modeled casing, so the catalog type lookup
+    is case-insensitive. Catalog-only columns are appended afterwards.
     """
     manifest_columns = getattr(model, "columns", {}) or {}
     catalog_columns = getattr(catalog_node, "columns", {}) or {} if catalog_node else {}
+    catalog_by_lower = {str(name).lower(): col for name, col in catalog_columns.items()}
+
     columns = []
-    for name in catalog_columns:
-        manifest_column = manifest_columns.get(name)
-        description = getattr(manifest_column, "description", "") or "" if manifest_column else ""
-        columns.append(
-            {
-                "name": name,
-                "type": catalog_columns[name].type,
-                "tags": (getattr(manifest_column, "tags", []) or []) if manifest_column else [],
-                "description": description.replace("\n", "<br>"),
-            }
+    seen_lower = set()
+    for name, manifest_column in manifest_columns.items():
+        lower = str(name).lower()
+        seen_lower.add(lower)
+        catalog_column = catalog_by_lower.get(lower)
+        col_type = getattr(catalog_column, "type", None) or getattr(
+            manifest_column, "data_type", None
         )
+        columns.append(_column_entry(name, manifest_column, col_type or ""))
+
+    for name, catalog_column in catalog_columns.items():
+        if str(name).lower() in seen_lower:
+            continue
+        columns.append(_column_entry(name, None, getattr(catalog_column, "type", "") or ""))
     return columns
 
 

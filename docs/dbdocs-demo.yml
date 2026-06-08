@@ -1,8 +1,10 @@
 # dbdocs config for the live demo site, built from the jaffle_shop test
-# fixtures. The demo is generated INTO docs/demo so mkdocs bundles it; mike then
-# publishes the whole docs build under the version alias, so the demo lives at
-# /latest/demo/ (NOT top-level /demo/). This is NOT the docs site itself (that's
-# mkdocs + mike).
+# fixtures. `dbdocs generate` writes the self-contained SPA into docs/demo/
+# (output_dir below), which lives inside the mkdocs source tree, so `mkdocs
+# build` copies it verbatim into the built site and mike then publishes the
+# whole docs build under the version alias — landing the demo at /latest/demo/
+# (NOT top-level /demo/). This is NOT the docs site itself (that's mkdocs +
+# mike); it's a static SPA bundled alongside it.
 
 site_name: dbdocs demo — jaffle_shop
 site_description: A live dbdocs site built from the jaffle_shop dbt project
@@ -20,7 +22,8 @@ target_dir: tests/fixtures/jaffle_shop
 # resolve on the deployed site.
 readme: README.md
 
-# Build into docs/demo so mkdocs bundles it; mike publishes it at /latest/demo/.
+# Write the SPA into the mkdocs source tree so `mkdocs build` bundles it and
+# mike publishes it at /latest/demo/. This path is gitignored (/docs/demo).
 output_dir: docs/demo
 
 # dbterd configs

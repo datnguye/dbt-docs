@@ -7,11 +7,15 @@ generated ``index.html`` + injected data dict.
 """
 
 import base64
+import dataclasses
 import json
 from pathlib import Path
 
 from dbdocs.core.config import DbDocsConfig
 from dbdocs.site.builder import ReportBuilder
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DEMO_CONFIG = REPO_ROOT / "docs" / "dbdocs-demo.yml"
 
 
 def _injected_data(index_html: str) -> dict:
@@ -63,3 +67,50 @@ def test_generate_is_idempotent(jaffle_project):
     ReportBuilder(cfg).generate()
     ReportBuilder(cfg).generate()  # second pass over a populated site/
     assert (Path(jaffle_project) / "site" / "index.html").is_file()
+
+
+def test_demo_config_generates_a_valid_site(tmp_path, monkeypatch):
+    """Headless verify the live-demo build: the real ``docs/dbdocs-demo.yml``
+    config + committed ``tests/fixtures/jaffle_shop`` artifacts must produce a
+    self-contained site.
+
+    The demo config's ``target_dir`` (``tests/fixtures/jaffle_shop``) and
+    ``output_dir`` (``docs/demo``) are relative, resolved against the cwd, so the
+    build runs from the repo root. The output is redirected to a throwaway dir so
+    the real (gitignored) ``docs/demo`` is never touched.
+    """
+    cfg = DbDocsConfig.load(DEMO_CONFIG)
+    cfg = dataclasses.replace(cfg, output_dir=str(tmp_path / "demo"))
+    monkeypatch.chdir(REPO_ROOT)
+
+    out = ReportBuilder(cfg).generate()
+
+    site = Path(out)
+    index = site / "index.html"
+    assert index.is_file()
+    assert (site / "assets" / "app.js").is_file()
+    assert (site / "assets" / "graph" / "index.js").is_file()
+
+    html = index.read_text(encoding="utf-8")
+    assert "window.dbdocsData" in html
+
+    data = _injected_data(html)
+    # Display metadata comes straight from the demo config.
+    assert data["metadata"]["site_name"] == "dbdocs demo — jaffle_shop"
+    assert data["metadata"]["adapter_type"] == "snowflake"
+    # Same jaffle-shop artifacts: 15 models + 6 sources.
+    assert data["metadata"]["counts"]["model"] == 15
+    assert data["metadata"]["counts"]["source"] == 6
+
+    # The README named in the demo config is rendered onto the overview.
+    assert data["readme"]
+
+    # The demo config narrows the ERD via dbterd select; the structured ERD
+    # still resolves entities with columns + a foreign-key edge list.
+    assert data["erd"]["nodes"]
+    assert all("columns" in n for n in data["erd"]["nodes"])
+    assert isinstance(data["erd"]["edges"], list)
+
+    # Column-level lineage and the nav tree are populated end to end.
+    assert "model.jaffle_shop.customers.customer_id" in data["columnLineage"]
+    assert data["tree"]["byDatabase"]

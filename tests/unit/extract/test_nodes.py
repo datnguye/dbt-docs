@@ -27,11 +27,61 @@ def test_build_nodes_merges_columns_and_escapes_newlines(fake_manifest, fake_cat
     assert record["compiled_code"].startswith("select id, name")
 
 
-def test_build_nodes_without_catalog_entry_has_no_columns(fake_manifest):
-    # An empty catalog: every node has zero columns but is still built.
+def test_build_nodes_keeps_manifest_columns_without_catalog(fake_manifest):
+    # The manifest is the source of truth: with an empty catalog the documented
+    # columns still render (they don't vanish), just without warehouse types.
     empty_catalog = SimpleNamespace(nodes={}, sources={})
     record = nodes_mod.build_nodes(fake_manifest, empty_catalog)["model.shop.customers"]
-    assert record["columns"] == []
+    by_name = {c["name"]: c for c in record["columns"]}
+    assert set(by_name) == {"id", "name"}
+    assert by_name["id"]["description"] == "primary<br>key"
+    assert by_name["id"]["tags"] == ["pk"]
+
+
+def test_columns_manifest_is_base_catalog_enriches_type_case_insensitively():
+    # Manifest order + metadata is the base; the catalog enriches the type. The
+    # catalog upper-cases names (Snowflake) so the type match is case-insensitive,
+    # and the displayed name stays the manifest's modeled casing.
+    model = SimpleNamespace(
+        columns={
+            "location_id": SimpleNamespace(
+                description="The unique key.", tags=["pk"], data_type="text"
+            )
+        }
+    )
+    catalog_node = SimpleNamespace(columns={"LOCATION_ID": SimpleNamespace(type="NUMBER")})
+    cols = nodes_mod._columns(model, catalog_node)
+    assert cols == [
+        {"name": "location_id", "type": "NUMBER", "tags": ["pk"], "description": "The unique key."}
+    ]
+
+
+def test_columns_type_falls_back_to_manifest_data_type():
+    # No catalog → the manifest's own data_type is shown; column never dropped.
+    model = SimpleNamespace(
+        columns={"amount": SimpleNamespace(description="", tags=[], data_type="numeric")}
+    )
+    assert nodes_mod._columns(model, None) == [
+        {"name": "amount", "type": "numeric", "tags": [], "description": ""}
+    ]
+
+
+def test_columns_appends_catalog_only_columns_after_manifest():
+    # A warehouse column the manifest never documented is appended after the
+    # documented ones — enrichment adds, it doesn't reorder the manifest.
+    model = SimpleNamespace(
+        columns={"id": SimpleNamespace(description="pk", tags=[], data_type="")}
+    )
+    catalog_node = SimpleNamespace(
+        columns={"ID": SimpleNamespace(type="number"), "EXTRA": SimpleNamespace(type="text")}
+    )
+    cols = nodes_mod._columns(model, catalog_node)
+    assert [(c["name"], c["type"]) for c in cols] == [("id", "number"), ("EXTRA", "text")]
+    assert cols[1]["description"] == ""
+
+
+def test_columns_empty_without_manifest_or_catalog():
+    assert nodes_mod._columns(SimpleNamespace(columns={}), None) == []
 
 
 def test_macros_used_resolves_and_orders(fake_manifest):
