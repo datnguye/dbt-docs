@@ -1,3 +1,4 @@
+import gzip
 import json
 from pathlib import Path
 
@@ -74,6 +75,21 @@ def test_build_data_assembles_all_sections(monkeypatch, config, fake_manifest, f
     assert data["tree"]["byDatabase"]["db"]
 
 
+def test_build_data_erd_algo_defaults_to_dbterd_default(
+    monkeypatch, config, fake_manifest, fake_catalog
+):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    data = ReportBuilder(config).build_data()
+    assert data["metadata"]["erd_algo"] == "test_relationship"
+
+
+def test_build_data_erd_algo_uses_configured_algo(monkeypatch, config, fake_manifest, fake_catalog):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    config.dbterd = {"algo": "model_contract"}
+    data = ReportBuilder(config).build_data()
+    assert data["metadata"]["erd_algo"] == "model_contract"
+
+
 def test_build_data_uses_config_dialect_override(monkeypatch, config, fake_manifest, fake_catalog):
     _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
     config.dialect = "bigquery"
@@ -88,11 +104,24 @@ def test_generate_writes_site(monkeypatch, config, fake_manifest, fake_catalog):
     index = Path(out) / "index.html"
     assert index.is_file()
     text = index.read_text(encoding="utf-8")
-    assert "window.dbdocsData" in text
+    # Data is loaded externally, never inlined — the marker is stripped, not left
+    # as a literal comment, and no payload script is embedded.
+    assert "window.dbdocsData" not in text
+    assert "<!-- DBDOCS_DATA -->" not in text
     assert (Path(out) / "dbdocs-data.json").is_file()
+    # The gzipped payload the SPA fetches decompresses to the data dict.
+    gz = (Path(out) / "dbdocs-data.json.gz").read_bytes()
+    assert json.loads(gzip.decompress(gz))["metadata"]["adapter_type"] == "snowflake"
     # Bundled assets are staged alongside (incl. the React Flow graph bundle).
-    assert (Path(out) / "assets" / "app.js").is_file()
+    assert (Path(out) / "assets" / "js" / "app.js").is_file()
     assert (Path(out) / "assets" / "graph" / "index.js").is_file()
+
+
+def test_generate_gzip_matches_plain_json(monkeypatch, config, fake_manifest, fake_catalog):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+    plain = (out / "dbdocs-data.json").read_bytes()
+    assert gzip.decompress((out / "dbdocs-data.json.gz").read_bytes()) == plain
 
 
 def test_generate_into_explicit_dir(monkeypatch, config, fake_manifest, fake_catalog, tmp_path):
@@ -101,6 +130,63 @@ def test_generate_into_explicit_dir(monkeypatch, config, fake_manifest, fake_cat
     out = ReportBuilder(config).generate(output_dir=str(target))
     assert out == str(target)
     assert (target / "index.html").is_file()
+
+
+def test_generate_stages_custom_logo_and_favicon(
+    monkeypatch, config, fake_manifest, fake_catalog, tmp_path
+):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    logo_src = tmp_path / "brand.png"
+    logo_src.write_bytes(b"PNG")
+    fav_src = tmp_path / "fav.ico"
+    fav_src.write_bytes(b"ICO")
+    config.logo = str(logo_src)
+    config.favicon = str(fav_src)
+
+    out = Path(ReportBuilder(config).generate())
+
+    # Files copied into assets/, named after the field + the source extension.
+    assert (out / "assets" / "logo.png").read_bytes() == b"PNG"
+    assert (out / "assets" / "favicon.ico").read_bytes() == b"ICO"
+    # Deployed URLs injected into the SPA metadata (base64 payload + debug dump).
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    assert data["metadata"]["logo"] == "assets/logo.png"
+    assert data["metadata"]["favicon"] == "assets/favicon.ico"
+
+
+def test_generate_omits_branding_for_missing_file(
+    monkeypatch, config, fake_manifest, fake_catalog, tmp_path
+):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    config.logo = str(tmp_path / "nope.png")  # never created
+
+    out = Path(ReportBuilder(config).generate())
+
+    assert not (out / "assets" / "logo.png").exists()
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    assert "logo" not in data["metadata"]
+
+
+def test_generate_keeps_default_branding_when_unset(
+    monkeypatch, config, fake_manifest, fake_catalog
+):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    assert "logo" not in data["metadata"]
+    assert "favicon" not in data["metadata"]
+    # The bundled default favicon is still present, untouched.
+    assert (out / "assets" / "favicon.svg").is_file()
+
+
+def test_copy_branding_asset_rejects_escaping_path(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    out = tmp_path / "site"
+    (out / "assets").mkdir(parents=True)
+    # A relative path escaping the cwd is rejected → no URL, no copy.
+    assert ReportBuilder._copy_branding_asset("../outside.png", "logo", out) == ""
+    assert not (out / "assets" / "logo.png").exists()
 
 
 def test_json_default_stringifies():
@@ -144,6 +230,15 @@ def test_build_erd_handles_no_options(monkeypatch):
     monkeypatch.setattr(erd_mod, "DbtErd", lambda **kw: captured.update(kw) or captured)
     erd_mod.build_erd(None)
     assert captured == {"target": "json"}
+
+
+def test_erd_algo_falls_back_to_dbterd_default():
+    assert erd_mod.erd_algo(None) == "test_relationship"
+    assert erd_mod.erd_algo({}) == "test_relationship"
+
+
+def test_erd_algo_returns_configured_algo():
+    assert erd_mod.erd_algo({"algo": "model_contract"}) == "model_contract"
 
 
 def test_build_erd_threads_artifacts_dir(monkeypatch):

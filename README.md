@@ -5,7 +5,7 @@
 <p align="center"><b>An alternative dbt docs site — catalog + ERD + column-level lineage, baked into one file.</b></p>
 
 <p align="center">
-  <a href="https://dbdocs.datnguye.me/latest/demo/"><img src="https://img.shields.io/badge/live-demo-FF694A?style=flat&logo=rocket&logoColor=white" alt="live demo"></a>
+  <a href="https://dbdocs.datnguye.me/latest/demo/latest/"><img src="https://img.shields.io/badge/live-demo-FF694A?style=flat&logo=rocket&logoColor=white" alt="live demo"></a>
   <a href="https://dbdocs.datnguye.me/"><img src="https://img.shields.io/badge/docs-visit%20site-blue?style=flat&logo=gitbook&logoColor=white" alt="docs"></a>
   <a href="https://pypi.org/project/dbdocs/"><img src="https://badge.fury.io/py/dbdocs.svg" alt="PyPI version"></a>
   <img src="https://img.shields.io/badge/CLI-Python-FFCE3E?labelColor=14354C&logo=python&logoColor=white" alt="python-cli">

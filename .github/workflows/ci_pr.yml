@@ -6,6 +6,8 @@ on:
     paths:
       - "dbdocs/**"
       - "tests/**"
+      - "frontend/**"
+      - "docs/dbdocs-demo.yml"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/ci_pr.yml"
@@ -50,3 +52,35 @@ jobs:
 
       - name: Run tests at 100% coverage
         run: uv run pytest --cov=dbdocs --cov-report=term-missing --cov-fail-under=100
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: uv sync --group dev
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        run: npm --prefix frontend ci
+
+      - name: Install Playwright chromium
+        run: npm --prefix frontend run e2e:install
+
+      - name: Run E2E tests
+        run: npm --prefix frontend run e2e

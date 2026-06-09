@@ -43,8 +43,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --group docs
 
-      - name: Build the live demo from jaffle_shop fixtures
-        run: uv run dbdocs -c docs/dbdocs-demo.yml generate
+      - name: Build the versioned live demo from jaffle_shop fixtures
+        run: uv run dbdocs -c docs/dbdocs-demo.yml deploy --version ${{ inputs.version }} --alias latest
 
       - name: Configure Git user
         run: |

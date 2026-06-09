@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { buildDagFlow, buildErdFlow, neighborhood } from "../src/data";
-import type { DbdocsData } from "../src/types";
+import { buildDagFlow, buildErdFlow, neighborhood } from "@/lib/data";
+import type { DbdocsData } from "@/lib/types";
 
 const DATA: DbdocsData = {
   nodes: {
@@ -49,6 +49,14 @@ describe("buildDagFlow", () => {
     expect(flow.sizes).toHaveLength(3);
     expect(flow.nodes[0].type).toBe("lineage");
   });
+
+  it("windows to keepIds, dropping nodes and edges outside the set", () => {
+    const flow = buildDagFlow(DATA, new Set(["source.s.r", "model.s.a"]));
+    expect(flow.nodes.map((n) => n.id).sort()).toEqual(["model.s.a", "source.s.r"]);
+    // Only the edge with both endpoints kept survives.
+    expect(flow.edges).toHaveLength(1);
+    expect(flow.edges[0].source).toBe("source.s.r");
+  });
 });
 
 describe("buildErdFlow", () => {
@@ -68,7 +76,13 @@ describe("buildErdFlow", () => {
 });
 
 describe("neighborhood", () => {
-  it("collects upstream and downstream", () => {
+  it("collects upstream and downstream within the default depth", () => {
     expect(neighborhood(DATA, "model.s.a")).toEqual(new Set(["model.s.a", "source.s.r", "model.s.b"]));
+  });
+
+  it("bounds the walk to maxDepth hops in each direction", () => {
+    // From model.s.b, depth 1 reaches its parent model.s.a but not the
+    // grandparent source.s.r two hops up.
+    expect(neighborhood(DATA, "model.s.b", 1)).toEqual(new Set(["model.s.b", "model.s.a"]));
   });
 });

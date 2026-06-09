@@ -1,9 +1,9 @@
 import { StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { GraphApp } from "./GraphApp";
-import type { DbdocsData, GraphMode } from "./types";
+import { GraphApp } from "@/components/GraphApp";
+import type { DbdocsData, GraphMode } from "@/lib/types";
 import "@xyflow/react/dist/style.css";
-import "./graph.css";
+import "@/graph.css";
 
 // The vanilla SPA owns navigation; this bundle only renders graphs. It mounts a
 // React root into an element the SPA creates, reading the mode/focus from the

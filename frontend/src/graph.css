@@ -15,6 +15,21 @@
   min-height: 0;
 }
 
+/* Centered message shown instead of a graph (too many DAG nodes, or no ERD
+   relationships for the focused entity). */
+.dbd-graph-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 24px;
+}
+.dbd-graph-empty p {
+  max-width: 32rem;
+  text-align: center;
+  color: var(--text-soft, #5a6473);
+}
+
 /* ERD lock/unlock bar (global ERD only) */
 .dbd-erd-bar {
   display: flex;

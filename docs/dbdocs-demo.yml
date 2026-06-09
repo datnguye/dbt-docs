@@ -1,14 +1,12 @@
 # dbdocs config for the live demo site, built from the jaffle_shop test
-# fixtures. `dbdocs generate` writes the self-contained SPA into docs/demo/
-# (output_dir below), which lives inside the mkdocs source tree, so `mkdocs
-# build` copies it verbatim into the built site and mike then publishes the
-# whole docs build under the version alias — landing the demo at /latest/demo/
-# (NOT top-level /demo/). This is NOT the docs site itself (that's mkdocs +
-# mike); it's a static SPA bundled alongside it.
+# fixtures. `dbdocs deploy <version> --alias latest` writes a versioned SPA tree
+# into docs/demo/, which lives inside the mkdocs source tree, so `mkdocs build`
+# copies it verbatim and mike publishes it at /latest/demo/latest/. This is NOT
+# the docs site itself (that's mkdocs + mike); it's a static SPA bundled alongside.
 
 site_name: dbdocs demo — jaffle_shop
 site_description: A live dbdocs site built from the jaffle_shop dbt project
-site_url: https://dbdocs.datnguye.me/latest/demo/
+site_url: https://dbdocs.datnguye.me/latest/demo/latest/
 site_author: Dat Nguyen
 project_name: jaffle_shop
 repo_name: datnguye/dbt-docs
@@ -23,7 +21,7 @@ target_dir: tests/fixtures/jaffle_shop
 readme: README.md
 
 # Write the SPA into the mkdocs source tree so `mkdocs build` bundles it and
-# mike publishes it at /latest/demo/. This path is gitignored (/docs/demo).
+# mike publishes it at /latest/demo/latest/. This path is gitignored (/docs/demo).
 output_dir: docs/demo
 
 # dbterd configs

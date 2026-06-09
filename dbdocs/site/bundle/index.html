@@ -5,15 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>dbt docs</title>
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
-  <link rel="stylesheet" href="assets/style.css" />
+  <link rel="stylesheet" href="assets/css/style.css" />
   <link rel="stylesheet" href="assets/graph/index.css" />
   <!-- DBDOCS_DATA -->
 </head>
 <body>
   <header class="topbar">
+    <button id="nav-toggle" class="icon-btn nav-toggle" aria-label="Toggle navigation" aria-expanded="false">☰</button>
     <div class="brand">
-      <img class="brand-mark" src="assets/favicon.svg" alt="" width="24" height="24" />
-      <span class="brand-name" id="brand-name">dbt docs</span>
+      <a class="brand-home" href="#/overview" title="Catalog overview">
+        <img class="brand-mark" id="brand-mark" src="assets/favicon.svg" alt="" width="24" height="24" />
+        <span class="brand-name" id="brand-name">dbt docs</span>
+      </a>
       <span class="brand-generated" id="brand-generated" hidden></span>
     </div>
     <div class="search-wrap">
@@ -21,6 +24,9 @@
       <div id="search-results" class="search-results" hidden></div>
     </div>
     <div class="topbar-actions">
+      <button id="search-toggle" class="icon-btn search-toggle" aria-label="Toggle search" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M15.5 14h-.79l-.28-.27a6.5 6.5 0 10-.7.7l.27.28v.79l5 5 1.5-1.5-5-5zm-6 0A4.5 4.5 0 1114 9.5 4.5 4.5 0 019.5 14z"/></svg>
+      </button>
       <select id="version-switcher" class="version-switcher" hidden></select>
       <a id="repo-link" class="repo-link" href="#" target="_blank" rel="noopener" title="Repository" hidden>
         <span class="repo-icon" aria-hidden="true">
@@ -37,12 +43,13 @@
       <nav id="sidebar" class="sidebar" aria-label="Catalog navigation"></nav>
       <footer id="site-footer" class="site-footer"></footer>
     </div>
+    <div id="nav-overlay" class="nav-overlay" hidden></div>
     <main id="app" class="content" tabindex="-1"></main>
   </div>
 
   <script src="assets/vendor/minisearch.min.js"></script>
   <script src="assets/vendor/marked.min.js"></script>
   <script src="assets/graph/index.js"></script>
-  <script src="assets/app.js"></script>
+  <script type="module" src="assets/js/app.js"></script>
 </body>
 </html>

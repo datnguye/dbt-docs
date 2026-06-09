@@ -57,10 +57,32 @@ def test_load_unknown_key_raises(tmp_path):
 
 def test_render_context_excludes_build_fields():
     context = DbDocsConfig().render_context()
-    for field in ("target_dir", "output_dir", "dialect", "default_version", "dbterd"):
+    for field in (
+        "target_dir",
+        "output_dir",
+        "dialect",
+        "default_version",
+        "dbterd",
+        "logo",
+        "favicon",
+    ):
         assert field not in context
     assert context["site_name"] == "dbt docs"
     assert context["project_name"] == "dbt docs"
+
+
+def test_logo_and_favicon_default_empty():
+    cfg = DbDocsConfig()
+    assert cfg.logo == ""
+    assert cfg.favicon == ""
+
+
+def test_load_reads_logo_and_favicon(tmp_path):
+    path = tmp_path / "dbdocs.yml"
+    path.write_text("logo: assets/logo.png\nfavicon: assets/fav.ico\n", encoding="utf-8")
+    cfg = DbDocsConfig.load(path)
+    assert cfg.logo == "assets/logo.png"
+    assert cfg.favicon == "assets/fav.ico"
 
 
 def test_dbterd_block_loaded(tmp_path):

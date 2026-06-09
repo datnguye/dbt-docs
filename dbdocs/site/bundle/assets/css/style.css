@@ -52,7 +52,10 @@ code, pre { font-family: "SF Mono", "Roboto Mono", Menlo, Consolas, monospace; }
   background: var(--bg-elev); border-bottom: 1px solid var(--border);
   position: sticky; top: 0; z-index: 30;
 }
-.brand { display: flex; align-items: baseline; gap: 8px; font-weight: 600; min-width: 160px; }
+.brand { display: flex; align-items: center; gap: 8px; font-weight: 600; min-width: 160px; }
+/* The logo + name link home (catalog overview). */
+.brand-home { display: flex; align-items: center; gap: 8px; color: var(--text); }
+.brand-home:hover { text-decoration: none; color: var(--accent); }
 .brand-mark { display: block; width: 24px; height: 24px; border-radius: 6px; align-self: center; }
 .brand-generated { color: var(--text-soft); font-size: 12px; font-weight: 400; white-space: nowrap; }
 .search-wrap { position: relative; flex: 1; max-width: 520px; }
@@ -208,6 +211,14 @@ th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--bor
 th { color: var(--text-soft); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .03em; }
 td code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
 
+/* Briefly highlight a column row deep-linked from an upstream-lineage chip. */
+tr.col-flash > td { background: var(--accent-soft); }
+tr.col-flash { animation: col-flash-fade 1.6s ease-out; }
+@keyframes col-flash-fade {
+  0% { background: var(--accent-soft); }
+  100% { background: transparent; }
+}
+
 /* Tabs */
 .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-top: 8px; }
 .tab { padding: 6px 14px; cursor: pointer; border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; color: var(--text-soft); }
@@ -283,3 +294,61 @@ details.macro pre.code { margin: 0; border: none; border-top: 1px solid var(--bo
 .markdown-body th { background: var(--bg-soft); }
 .markdown-body img { max-width: 100%; height: auto; border-radius: 6px; }
 .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+/* Hamburger + search toggle — hidden on desktop, revealed on phones below. */
+.nav-toggle { display: none; font-size: 18px; }
+.search-toggle { display: none; }
+/* Backdrop behind the off-canvas sidebar drawer. */
+.nav-overlay {
+  position: fixed; inset: 52px 0 0 0; z-index: 25;
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* Responsive: collapse the fixed sidebar into a drawer, reflow the topbar, and
+   let wide tables scroll instead of overflowing the viewport. */
+@media (max-width: 768px) {
+  .nav-toggle { display: inline-flex; }
+  .brand { min-width: 0; }
+  .layout { height: calc(100vh - 52px); }
+  /* Sidebar becomes an off-canvas drawer, slid in when body.nav-open is set. */
+  .sidebar-col {
+    position: fixed; top: 52px; bottom: 0; left: 0; z-index: 26;
+    width: 84vw; max-width: 320px;
+    transform: translateX(-100%); transition: transform 0.2s ease;
+    box-shadow: var(--shadow);
+  }
+  body.nav-open .sidebar-col { transform: translateX(0); }
+  .content { padding: 20px 16px; }
+  /* Let the columns table scroll horizontally rather than blow out the page. */
+  .content table { display: block; overflow-x: auto; white-space: nowrap; }
+}
+
+/* Phones: the topbar is a single row (hamburger + brand + actions, including a
+   search-toggle icon). The search hides until the icon reveals it as a
+   full-width row underneath, so it never fights the actions for space. */
+@media (max-width: 480px) {
+  .topbar {
+    flex-wrap: wrap; gap: 8px 10px; padding: 8px 10px; height: auto;
+  }
+  .brand-generated { display: none; }
+  /* The long project name forces the actions onto a second row, so on phones
+     keep just the logo mark — the page heading already names the project. */
+  .brand-name { display: none; }
+  .search-toggle { display: inline-flex; }
+  /* Row 1 order: hamburger, brand mark, actions (all fit once the name is out). */
+  .nav-toggle { order: 0; }
+  .brand { order: 1; }
+  .topbar-actions { order: 2; margin-left: auto; }
+  /* The search is its own full-width row, collapsed until toggled open. */
+  .search-wrap {
+    order: 3; flex-basis: 100%; max-width: none;
+    display: none;
+  }
+  body.search-open .search-wrap { display: block; }
+  body.search-open .search-toggle { border-color: var(--accent); color: var(--accent); }
+  /* Drawer/overlay clear the single-row topbar (taller only while search open,
+     where the sticky topbar's higher z-index covers any slight overlap). */
+  .sidebar-col { top: 52px; }
+  .nav-overlay { top: 0; }
+  .content-foot { flex-direction: column; align-items: flex-start; gap: 8px; }
+}

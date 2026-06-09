@@ -152,6 +152,8 @@ frontend/dist/
 frontend/.vite/
 frontend/coverage/
 frontend/*.tsbuildinfo
+frontend/test-results/
+frontend/playwright-report/
 .eslintcache
 
 # npm / yarn / pnpm logs & debug output

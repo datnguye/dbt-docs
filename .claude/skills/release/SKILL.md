@@ -16,17 +16,20 @@ publish from a local machine (`uv publish` / `twine upload` are denied in
 2. `task lint` — ruff format-check + lint pass.
 3. `task test` — pytest at 100% coverage.
 4. `uv build` produces a wheel **and** confirm the wheel contains the bundled
-   templates: `python -m zipfile -l dist/dbdocs-*.whl | grep template/standard`
-   should list the yml/md/html/css/js/ico assets. A wheel missing
-   `dbdocs/template/**` is broken — fix the `artifacts` glob in `pyproject.toml`
-   before releasing.
+   SPA: `python -m zipfile -l dist/dbdocs-*.whl | grep dbdocs/site/bundle` should
+   list `index.html` + the `assets/{js,css,vendor,graph}/` files. A wheel missing
+   `dbdocs/site/bundle/**` is broken — fix the `artifacts` glob in
+   `[tool.hatch.build.targets.wheel]` of `pyproject.toml` before releasing.
 
 ## Version selection
 
 - `dbdocs` follows semver. Choose patch/minor/major from the changes since the
-  last tag (`git log <last-tag>..HEAD`).
-- Set the version in `pyproject.toml` `[project] version` in a normal commit on
-  `main` **before** tagging. The tag must match (`vX.Y.Z`).
+  last tag (`git log <last-tag>..HEAD`; `git tag --sort=-v:refname | head` shows
+  the latest — the most recent published version is **1.0.2**).
+- The version is **dynamic from the git tag** (`[tool.hatch.version] source =
+  "vcs"`) — there is no static `version` in `pyproject.toml` to set. The tag you
+  create *is* the version. Tags are **unprefixed** `X.Y.Z` (e.g. `1.0.2`), not
+  `vX.Y.Z`.
 
 ## Cutting the release
 
@@ -34,8 +37,8 @@ publish from a local machine (`uv publish` / `twine upload` are denied in
    explicit confirmation.
 2. Generate release notes from the commit range (Conventional Commits → grouped
    highlights). Notes live in the **Release body**, not a `CHANGELOG.md`.
-3. `gh release create vX.Y.Z --title "vX.Y.Z" --notes "<notes>"` — this creates
-   the tag and fires CI.
+3. `gh release create X.Y.Z --title "X.Y.Z" --notes "<notes>"` — unprefixed tag
+   (matching the existing `1.0.2` style); this creates the tag and fires CI.
 
 ## Post-publish verification
 

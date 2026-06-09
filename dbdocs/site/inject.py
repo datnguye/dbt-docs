@@ -1,32 +1,16 @@
-"""Inject the report data dict into the bundled SPA shell.
+"""Prepare the bundled SPA shell's data insertion point.
 
-The SPA reads ``window.dbdocsData``. We base64-encode the JSON and embed it in a
-``<script>`` so the (large, quote-and-newline-laden) payload can never break out
-of the string literal — the same self-contained hand-off dbt-colibri uses. The
-shell carries a ``<!-- DBDOCS_DATA -->`` marker as the insertion point; if it's
-absent we fall back to inserting before ``</head>``.
+The SPA loads its data dict at runtime by fetching the external
+``dbdocs-data.json.gz`` (decompressed in-browser via ``DecompressionStream``;
+see the SPA's ``data.js`` loader). The shell carries a ``<!-- DBDOCS_DATA -->``
+marker where an inlined payload used to go; :func:`strip_marker` removes it so
+the served HTML stays clean.
 """
 
-import base64
-import json
-
-#: Marker the bundled shell contains at the data insertion point.
+#: Marker the bundled shell contains at the (now external) data insertion point.
 INJECT_MARKER = "<!-- DBDOCS_DATA -->"
 
 
-def data_script(data: dict) -> str:
-    """The ``<script>`` tag that sets ``window.dbdocsData`` from ``data``."""
-    payload = base64.b64encode(
-        json.dumps(data, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    ).decode("ascii")
-    return f'<script>window.dbdocsData = JSON.parse(atob("{payload}"));</script>'
-
-
-def inject(html: str, data: dict) -> str:
-    """Return ``html`` with the data script placed at the marker / before head."""
-    script = data_script(data)
-    if INJECT_MARKER in html:
-        return html.replace(INJECT_MARKER, script)
-    if "</head>" in html:
-        return html.replace("</head>", f"{script}</head>", 1)
-    return script + html
+def strip_marker(html: str) -> str:
+    """Return ``html`` with the data marker removed (data is loaded externally)."""
+    return html.replace(INJECT_MARKER, "")

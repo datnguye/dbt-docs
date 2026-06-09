@@ -28,6 +28,16 @@ tasks:
     cmds:
       - npm --prefix frontend test
 
+  frontend:e2e:install:
+    desc: Install the Playwright browser (chromium) for the E2E suite.
+    cmds:
+      - npm --prefix frontend run e2e:install
+
+  frontend:e2e:
+    desc: Run the Playwright E2E tests against a real demo build (kept out of the coverage gate).
+    cmds:
+      - npm --prefix frontend run e2e
+
   format:
     desc: Apply Ruff formatting and autofixes.
     cmds:
@@ -45,45 +55,11 @@ tasks:
     cmds:
       - uv run pytest --cov=dbdocs --cov-report=term-missing --cov-fail-under=100
 
-  generate:
-    desc: Build the self-contained docs site into ./site.
+  demo:docs:
+    desc: 'Build the demo and serve the mkdocs site with it embedded (open http://127.0.0.1:8000/demo/latest/).'
     cmds:
-      - uv run dbdocs generate
-
-  serve:
-    desc: Serve the generated site locally (static http server).
-    cmds:
-      - uv run dbdocs serve
-
-  deploy:
-    desc: 'Deploy a versioned build. Usage: task deploy -- --version 1.2 --alias latest'
-    cmds:
-      - uv run dbdocs deploy {{.CLI_ARGS}}
-
-  demo:
-    desc: Build the live demo from jaffle_shop fixtures into docs/demo (bundled by mkdocs at /latest/demo/).
-    cmds:
-      - uv run dbdocs -c docs/dbdocs-demo.yml generate
-
-  docs:install:
-    desc: Sync the docs dependency group (mkdocs-material, mike).
-    cmds:
-      - uv sync --group docs
-
-  docs:serve:
-    desc: Serve the documentation site locally with live reload.
-    cmds:
+      - uv run dbdocs -c docs/dbdocs-demo.yml deploy --version 1.0 --alias latest
       - uv run mkdocs serve
-
-  docs:build:
-    desc: Build the documentation site into ./site-docs (strict).
-    cmds:
-      - uv run mkdocs build --strict --site-dir site-docs
-
-  docs:deploy:
-    desc: 'Publish a versioned docs site via mike. Usage: task docs:deploy -- 1.2 latest'
-    cmds:
-      - uv run mike deploy --push --update-aliases {{.CLI_ARGS}}
 
   git-hooks:
     desc: Install pre-commit and commit-msg git hooks.

@@ -9,10 +9,19 @@ foreign-key edges between them, all keyed by dbt unique_id.
 
 import json
 
-from dbterd.api import DbtErd
+from dbterd.api import DbtErd, default
 
 # Importing the module registers the "json" target with dbterd's PluginRegistry.
 from dbdocs.extract import erd_json  # noqa: F401
+
+
+def erd_algo(dbterd_options: "dict | None" = None) -> str:
+    """The dbterd algorithm that detected the ERD relationships.
+
+    Reads the configured ``algo`` from the ``dbterd:`` block, falling back to
+    dbterd's own default. Surfaced into the SPA so it can explain an empty ERD.
+    """
+    return (dbterd_options or {}).get("algo") or default.default_algo()
 
 
 def build_erd(dbterd_options: "dict | None" = None, artifacts_dir: "str | None" = None) -> DbtErd:

@@ -1,5 +1,5 @@
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import type { ColumnRecord, ErdNodeRecord } from "../types";
+import type { ColumnRecord, ErdNodeRecord } from "@/lib/types";
 
 const RTYPE_COLOR: Record<string, string> = {
   model: "var(--model, #2f6feb)",

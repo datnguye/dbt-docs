@@ -23,6 +23,14 @@ show_buy_me_a_coffee: true
 # silently skipped — the section simply won't appear. Absolute paths are fine.
 readme: README.md
 
+# Custom header logo and browser favicon. Each is a path (relative to the
+# working directory; absolute paths are fine) copied into the site's assets/ at
+# build time. Omit (or leave empty) to keep the bundled defaults. Same fail-soft
+# handling as readme: a missing file or a .. path that escapes the working
+# directory is silently ignored — the default is used.
+# logo: assets/my-logo.svg
+# favicon: assets/my-favicon.png
+
 # Directory holding the dbt artifacts (manifest.json / catalog.json), relative
 # to the working directory. dbterd also reads from here. Relative paths cannot
 # use .. to escape the working directory (raises an error); absolute paths are

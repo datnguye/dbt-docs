@@ -49,6 +49,13 @@ class DbDocsConfig:
     #: Project README rendered on the overview (relative to the working dir). Set
     #: empty to omit the README section. Missing file ⇒ section simply absent.
     readme: str = "README.md"
+    #: Custom header logo (path relative to the working dir). Empty ⇒ the bundled
+    #: default mark. A missing file or a path escaping the cwd is ignored
+    #: (fail-soft, like ``readme``) ⇒ the default mark.
+    logo: str = ""
+    #: Custom favicon (path relative to the working dir). Empty ⇒ the bundled
+    #: default favicon. Same fail-soft handling as ``logo``.
+    favicon: str = ""
     target_dir: str = "target"
     #: Where the generated site is written. Nested under the dbt ``target/`` by
     #: default so docs sit alongside the artifacts they're built from.
@@ -92,6 +99,8 @@ class DbDocsConfig:
         return cls(**raw)
 
     #: Build-control fields that are not part of the site's display metadata.
+    #: ``logo``/``favicon`` are excluded too — they're *source* paths; the builder
+    #: copies the files into the output and injects their *deployed* asset URLs.
     _NON_METADATA_FIELDS = (
         "target_dir",
         "output_dir",
@@ -99,6 +108,8 @@ class DbDocsConfig:
         "default_version",
         "dbterd",
         "readme",
+        "logo",
+        "favicon",
     )
 
     def render_context(self) -> dict:

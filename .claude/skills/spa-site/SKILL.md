@@ -1,15 +1,17 @@
 ---
 name: spa-site
-description: Use when changing how dbdocs assembles or presents the generated single-page-app — the project data dict, the base64 window.dbdocsData injection, the bundled vanilla-JS SPA (index.html + assets), the React Flow graph bundle (frontend/), the vendored minisearch, or the versioned deploy layout.
+description: Use when changing how dbdocs assembles or presents the generated single-page-app — the project data dict, the external gzip payload (dbdocs-data.json.gz), the bundled 3-tier vanilla-JS SPA (index.html + assets/js,css,vendor), the React Flow graph bundle (frontend/), the vendored minisearch, or the versioned deploy layout.
 ---
 
 # The generated single-page-app (SPA)
 
 `dbdocs` is an **alternative dbt docs site = dbt docs + ERD + column-level
-lineage**. Instead of dbt's bundle (or any mkdocs site), it bakes the whole
-project into **one self-contained `index.html`**: a hand-written vanilla-JS SPA
-with all project data base64-injected as `window.dbdocsData`. No mkdocs, no mike,
-no Jinja2.
+lineage**. Instead of dbt's bundle (or any mkdocs site), `generate` emits a small
+`index.html` plus an **external** `dbdocs-data.json.gz` that a hand-written
+vanilla-JS SPA fetches + decompresses client-side. The shell SPA is build-step-free
+**native ES modules** in three tiers (`data` → `service` → `ui`). The site is
+served over HTTP (`dbdocs serve` or any static host) — the data loads via `fetch`,
+so opening `index.html` from `file://` won't work. No mkdocs, no mike, no Jinja2.
 
 The one piece of compiled JS is the **graph UI**: an interactive React Flow app
 (`frontend/`, React + TypeScript, Vite) that renders the lineage DAG and the ERDs.
@@ -24,7 +26,7 @@ Three CLI commands (`dbdocs/cli/main.py`):
 
 | Command           | What it does                                                          |
 |-------------------|----------------------------------------------------------------------|
-| `dbdocs generate` | Load artifacts → build the data dict → stage the bundle → inject → write `index.html` (+ `dbdocs-data.json`). |
+| `dbdocs generate` | Load artifacts → build the data dict → stage the bundle → strip the data marker → write `index.html` + the external `dbdocs-data.json.gz` (+ `dbdocs-data.json` debug dump). |
 | `dbdocs serve`    | Serve `output_dir` with a stdlib `http.server` (`--port`). No live reload — re-`generate` to refresh. |
 | `dbdocs deploy`   | Generate a versioned copy into `output_dir/<version>/`, update `versions.json`, copy to the alias dir; `--push` publishes to gh-pages. |
 
@@ -48,11 +50,13 @@ straight through to `DbtErd`.
 ## The single data dict
 
 `ReportBuilder.build_data()` returns one dict — the single source of truth the
-SPA reads from `window.dbdocsData`:
+SPA loads (via `data.js`, which fetches `dbdocs-data.json.gz` and exposes it on
+`window.dbdocsData` for the graph bundle):
 
 ```
 {
-  "metadata":     { ...render_context(), generated_at, adapter_type, dialect, counts },
+  "metadata":     { ...render_context(), generated_at, adapter_type, dialect,
+                    erd_algo, counts, logo?, favicon? },
   "nodes":        { "<unique_id>": { id, name, label, resource_type, database, schema,
                                      package, description, tags, relation_name,
                                      columns:[{name,type,tags,description}],
@@ -63,9 +67,15 @@ SPA reads from `window.dbdocsData`:
   "erd":          { nodes:[{id,label,database,schema,resource_type,
                             columns:[{name,type,is_primary_key,is_foreign_key,description}]}],
                     edges:[{id,source,target,from_columns,to_columns,label,type}] },
-  "tree":         { byDatabase: { db: { schema: [ids...] } } }
+  "tree":         { byDatabase: { db: { schema: [ids...] } } },
+  "readme":       "<markdown rendered on the overview, or ''>"
 }
 ```
+
+- `metadata.erd_algo` is the dbterd algorithm used for ERD detection (the demo's
+  `model_contract`, else dbterd's default `test_relationship`); the graph app
+  shows it when a per-node ERD has no relationships. `metadata.logo`/`favicon` are
+  deployed asset URLs, present only when overridden in `dbdocs.yml`.
 
 - `nodes` is keyed by dbt `unique_id` and covers models + sources (+ seeds /
   snapshots) — `dbdocs/extract/nodes.py` (`build_nodes`).
@@ -90,17 +100,19 @@ SPA reads from `window.dbdocsData`:
   Flow bundle derives all three graph surfaces (full DAG, global ERD, per-node
   ERD) from `lineage` + `erd`.
 
-## Injection (`dbdocs/site/inject.py`)
+## Payload (external gzip — `dbdocs/site/inject.py` + `builder.generate`)
 
-The data dict is JSON-serialized with `sort_keys=True` (deterministic output),
-**base64-encoded**, and embedded as
-`<script>window.dbdocsData = JSON.parse(atob("…"));</script>`. base64 means the
-(quote- and newline-laden) SQL payload can never break out of the string
-literal. The bundled shell carries a `<!-- DBDOCS_DATA -->` marker as the
-insertion point (falling back to before `</head>`). `generate` also writes the
-same dict to `dbdocs-data.json` for debugging — **compact** (no indentation),
-`sort_keys=True`, so it stays cheap on large projects and diffs cleanly; pipe it
-through `jq` to read it.
+The data dict is **never inlined**. `generate` serializes it once (`sort_keys=True`,
+compact) and writes two files: `dbdocs-data.json.gz` (the gzipped payload the SPA
+fetches, written with `gzip.compress(payload, mtime=0)` so the bytes are
+reproducible) and `dbdocs-data.json` (the plain debug dump — pipe through `jq`).
+`inject.strip_marker` removes the `<!-- DBDOCS_DATA -->` placeholder from the
+staged `index.html`. The SPA's `data.js` (`loadData`) resolves the payload in
+order: `dbdocs-data.json.gz` (decompressed via the browser-native
+`DecompressionStream`) → plain `dbdocs-data.json` fallback; it then sets
+`window.dbdocsData` so the React Flow graph bundle (a separate app) can read it.
+Because the data loads over HTTP, the site must be **served** — `file://` won't
+fetch it.
 
 ## Bundle layout
 
@@ -108,21 +120,30 @@ The SPA ships in the wheel under `dbdocs/site/bundle/`:
 
 ```
 dbdocs/site/bundle/
-├── index.html                    # the shell with the DBDOCS_DATA marker
+├── index.html                    # the shell (<script type="module">), DBDOCS_DATA marker
 └── assets/
-    ├── app.js                    # hand-written vanilla-JS app (nav, search, node pages)
-    ├── style.css                 # dark/light styling
-    ├── favicon.svg               # dbt-style favicon
+    ├── favicon.svg               # dbt-style default favicon (loose; the only one)
+    ├── js/                       # the 3-tier ES-module shell SPA (one-way data→service→ui)
+    │   ├── data.js               #   tier 1: fetch + normalize the payload (loadData)
+    │   ├── service.js            #   tier 2: pure domain logic over the dict, ZERO DOM
+    │   ├── ui.js                 #   tier 3: all DOM rendering (nav, search, node pages, drawer)
+    │   └── app.js                #   thin entry: load data → svc.init → ui.boot
+    ├── css/
+    │   └── style.css             #   dark/light styling + responsive (drawer, tables)
     ├── graph/                    # committed React Flow bundle (built from frontend/)
     │   ├── index.js              #   the @xyflow/react graph app
     │   └── index.css
-    └── vendor/
-        └── minisearch.min.js     # client-side search index
+    └── vendor/                   # committed UMD libs (offline, no CDN)
+        ├── minisearch.min.js     #   client-side search index
+        └── marked.min.js         #   README markdown rendering
 ```
 
 `generate` removes the output dir first (`rmtree`) to guarantee a clean build
 — no stale assets from a prior run — then `copytree`s this whole dir into
-`output_dir`, and finally rewrites `index.html` with the injected data.
+`output_dir`, strips the data marker from `index.html`, copies any custom
+`logo`/`favicon` into `assets/`, and writes the external payload files. The shell
+loads as `<script type="module" src="assets/js/app.js">`; keep the `service` tier
+DOM-free and `ui` the only DOM toucher.
 
 ## The graph bundle (React Flow)
 
@@ -138,8 +159,8 @@ window.dbdocsGraph.mount(el)    // render a React root into el
 window.dbdocsGraph.unmount(el)  // tear it down
 ```
 
-`app.js` creates the host element and reads the project data from
-`window.dbdocsData`:
+The `ui` tier creates the host element (via `graphMount`); the graph bundle reads
+the project data from `window.dbdocsData` (set by `data.js`):
 
 ```html
 <div id="graph-root" data-mode="dag|erd|erd-node" data-focus="<unique_id>">
@@ -189,12 +210,12 @@ index cannot cause path traversal.
 
 ## Rules
 
-1. **Templates own presentation.** All HTML/CSS/JS lives in the bundle assets;
-   the Python only assembles the data dict. Don't render markup in Python.
-2. **One data dict.** Add new surface area by extending `build_data()`'s dict
-   and reading it in `app.js` — keep the producer (extract/builder) and the
-   consumer (SPA) in sync, and prefer extending the dict over inventing a
-   second hand-off channel.
+1. **The SPA owns presentation.** All HTML/CSS/JS lives in the bundle assets; the
+   Python only assembles the data dict. Don't render markup in Python.
+2. **One data dict.** Add new surface area by extending `build_data()`'s dict and
+   reading it in the SPA — pure derivations go in the `service` tier, rendering in
+   `ui`. Keep the producer (extract/builder) and the consumer (SPA) in sync, and
+   prefer extending the dict over inventing a second hand-off channel.
 3. **Graphs are React Flow.** ERDs and the DAG are rendered by the `frontend/`
    React Flow app via `window.dbdocsGraph.mount/unmount`; the data is the
    structured `erd` `{nodes, edges}` from `DbtErd(target="json")`. Don't

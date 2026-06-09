@@ -6,10 +6,11 @@ column-level lineage, ERDs, nav tree) → stage the bundled SPA → base64-injec
 data → write ``index.html`` + a debug ``dbdocs-data.json``.
 """
 
+import gzip
 import json
 from datetime import datetime
 from pathlib import Path
-from shutil import copytree, rmtree
+from shutil import copyfile, copytree, rmtree
 from typing import Any
 
 from dbdocs.core.artifacts import adapter_type, load_artifacts
@@ -17,10 +18,10 @@ from dbdocs.core.config import DbDocsConfig, _resolve_within_cwd
 from dbdocs.core.exceptions import DbDocsConfigError
 from dbdocs.core.log import logger
 from dbdocs.extract.column_lineage import ColumnLineageExtractor
-from dbdocs.extract.erd import build_erd, build_erd_data
+from dbdocs.extract.erd import build_erd, build_erd_data, erd_algo
 from dbdocs.extract.graph import LineageGraph
 from dbdocs.extract.nodes import build_nodes, build_tree
-from dbdocs.site.inject import inject
+from dbdocs.site.inject import strip_marker
 
 #: The bundled SPA (shell + assets), shipped in the wheel.
 BUNDLE_DIR = Path(__file__).resolve().parent / "bundle"
@@ -54,6 +55,7 @@ class ReportBuilder:
                 "generated_at": datetime.now().isoformat(sep=" ", timespec="seconds"),
                 "adapter_type": adapter,
                 "dialect": dialect,
+                "erd_algo": erd_algo(self.config.dbterd),
                 "counts": self._counts(manifest),
             },
             "nodes": nodes,
@@ -81,6 +83,40 @@ class ReportBuilder:
             return path.read_text(encoding="utf-8")
         except OSError:
             return ""
+
+    def _stage_branding(self, out: Path) -> dict:
+        """Copy any custom logo/favicon into the output and return their metadata.
+
+        Returns a dict with ``logo`` / ``favicon`` keys set to the deployed asset
+        URL (e.g. ``assets/logo.png``) for each override that resolved to a real
+        file. Absent/unresolvable overrides are simply omitted — the SPA then
+        keeps the bundled default. Fail-soft, mirroring ``_read_readme``.
+        """
+        meta: dict = {}
+        for field_name in ("logo", "favicon"):
+            url = self._copy_branding_asset(getattr(self.config, field_name), field_name, out)
+            if url:
+                meta[field_name] = url
+        return meta
+
+    @staticmethod
+    def _copy_branding_asset(source: str, name: str, out: Path) -> str:
+        """Copy *source* into ``out/assets`` as ``<name><ext>``; return its URL.
+
+        ``""`` for an empty config value, a path escaping the cwd, or a missing
+        file (fail-soft — bad branding must never sink generate).
+        """
+        if not source:
+            return ""
+        try:
+            path = _resolve_within_cwd(source, name)
+        except DbDocsConfigError:
+            return ""
+        if not path.is_file():
+            return ""
+        target_name = f"{name}{path.suffix}"
+        copyfile(path, out / "assets" / target_name)
+        return f"assets/{target_name}"
 
     #: Manifest collections that aren't keyed by a ``<type>.`` unique_id prefix,
     #: mapped to the resource-type label to report them under.
@@ -112,7 +148,15 @@ class ReportBuilder:
         return counts
 
     def generate(self, output_dir: "str | None" = None) -> str:
-        """Render the site into ``output_dir`` (or config's). Returns its path."""
+        """Render the site into ``output_dir`` (or config's). Returns its path.
+
+        The data dict is written as an external ``dbdocs-data.json.gz`` that the
+        SPA fetches at load — never inlined into ``index.html``. This keeps the
+        HTML tiny regardless of project size, where a multi-MB inlined base64
+        payload would otherwise make the page slow to parse. The site must be
+        served over HTTP (``dbdocs serve`` or any static host); a plain
+        ``dbdocs-data.json`` is written alongside for debugging.
+        """
         out = Path(output_dir) if output_dir else Path(self.config.output_path)
         if out.exists():
             rmtree(out)
@@ -120,13 +164,18 @@ class ReportBuilder:
         copytree(src=BUNDLE_DIR, dst=out, dirs_exist_ok=True)
 
         data = self.build_data()
+        data["metadata"].update(self._stage_branding(out))
         index = out / "index.html"
-        index.write_text(inject(index.read_text(encoding="utf-8"), data), encoding="utf-8")
-        # Compact, not indented — keeps the debug dump cheap on large projects.
-        (out / "dbdocs-data.json").write_text(
-            json.dumps(data, separators=(",", ":"), sort_keys=True, default=self._json_default),
-            encoding="utf-8",
-        )
+        index.write_text(strip_marker(index.read_text(encoding="utf-8")), encoding="utf-8")
+        # Serialize once (compact, not indented — keeps it cheap on large
+        # projects); write the plain debug dump and the gzipped payload the SPA
+        # fetches.
+        payload = json.dumps(
+            data, separators=(",", ":"), sort_keys=True, default=self._json_default
+        ).encode("utf-8")
+        (out / "dbdocs-data.json").write_bytes(payload)
+        # mtime=0 keeps the gzip header byte-for-byte reproducible across runs.
+        (out / "dbdocs-data.json.gz").write_bytes(gzip.compress(payload, mtime=0))
 
         logger.info(
             "Generated site at %s (%s nodes, %s column-lineage edges).",

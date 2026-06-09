@@ -5,9 +5,11 @@ site**: a dbt docs site + ERD + **column-level lineage**. Rather than dbt's
 single-page bundle (or an mkdocs build), it reads dbt artifacts
 (`manifest.json` / `catalog.json`) via the `dbterd` Python API, derives the
 documentation data (catalog nodes, ERDs, node-level + column-level lineage), and
-emits a **single self-contained `index.html`** with all that data base64-injected
-as `window.dbdocsData`. A hand-written vanilla-JS SPA (no build step) renders it
-client-side. No mkdocs, no mkdocs-material, no mike.
+emits a small `index.html` plus an **external** `dbdocs-data.json.gz` that a
+hand-written vanilla-JS SPA fetches + decompresses client-side. The shell SPA is
+build-step-free native ES modules; the interactive graphs are a committed React
+Flow bundle. Served over HTTP (`dbdocs serve` or any static host). No mkdocs, no
+mkdocs-material, no mike.
 
 ## Table of contents
 
@@ -34,12 +36,14 @@ dbt-docs/
 │   │                             #   nodes, erd, graph, column_lineage (sqlglot)
 │   └── site/                     # assemble + publish:
 │       ├── builder.py            #   ReportBuilder — the one data dict + generate
-│       ├── inject.py             #   base64 window.dbdocsData injection
+│       ├── inject.py             #   strip_marker (data is external, not inlined)
 │       ├── deploy.py             #   versioned deploy (no mike)
-│       └── bundle/               #   the bundled SPA: index.html + assets/ (vanilla JS)
-│                                 #     + assets/graph/ (committed React Flow bundle)
+│       └── bundle/               #   the SPA: index.html + assets/{js,css,vendor,graph}/
+│                                 #     js/ = 3-tier ES modules (data→service→ui)
+│                                 #     graph/ = committed React Flow bundle
 ├── frontend/                     # React Flow graph app (React+TS, Vite) →
 │                                 #   built into dbdocs/site/bundle/assets/graph/ (committed)
+│                                 #   src/{components,lib}, test/{unit,e2e}, @/*→src/*
 ├── tests/                        # pytest, mirrors the package under tests/unit/
 ├── pyproject.toml                # uv + hatchling, ruff, 100% coverage gate
 ├── Taskfile.yml                  # task runner (wraps the uv commands)
@@ -60,11 +64,16 @@ the same targets so the agentic and manual paths stay aligned.
 | Format + autofix                     | `task format`     | —             |
 | Lint (format-check + ruff)           | `task lint`       | —             |
 | Run tests at 100% coverage           | `task test`       | `/test`       |
-| Build the self-contained site        | `task generate`   | `/generate`   |
+| Build the generated site             | `task generate`   | `/generate`   |
 | Serve the generated site locally     | `task serve`      | `/docs`       |
 | Deploy a versioned build             | `task deploy`     | `/deploy`     |
 | Cut a PyPI release                   | —                 | `/release`    |
-| Build the jaffle_shop demo site      | `task demo`       | —             |
+| Rebuild the React Flow graph bundle  | `task frontend:build` | —         |
+| Run the graph app's vitest units     | `task frontend:test`  | —         |
+| Run the Playwright E2E suite         | `task frontend:e2e`   | —         |
+| Install the Playwright browser       | `task frontend:e2e:install` | —   |
+| Deploy the versioned jaffle_shop demo| `task demo`       | —             |
+| Build demo + serve mkdocs (embedded) | `task demo:docs`  | —             |
 | Serve the project docs (mkdocs)      | `task docs:serve` | —             |
 | Build the project docs (strict)      | `task docs:build` | —             |
 
@@ -74,34 +83,39 @@ the same targets so the agentic and manual paths stay aligned.
 
 Two distinct "docs" live here — don't conflate them:
 
-- **The product** is the self-contained SPA `dbdocs generate` emits (no mkdocs,
-  no mike — see the design patterns below). It builds into `site/`.
+- **The product** is the SPA `dbdocs generate` emits (no mkdocs, no mike — see
+  the design patterns below). It builds into `site/`.
 - **The project's own documentation** at `dbdocs.datnguye.me` is a
   **mkdocs-material + mike** site under `docs/` (`mkdocs.yml`), published to the
   `gh-pages` branch by `.github/workflows/publish-docs.yml`. It builds into
   `site-docs/`. The "no mkdocs" rule is about the *product*, not this repo's docs.
-- **A live demo** is built from the committed `tests/fixtures/jaffle_shop`
-  artifacts via `docs/dbdocs-demo.yml` into `docs/demo/` (gitignored), so the
-  same `publish-docs.yml` run bundles it through mkdocs. There is no separate
-  `build-demo.yml`. Because mike nests every page under the version alias, the
-  demo lands at **`/latest/demo/`** (not top-level `/demo/`) — links point there.
+- **A live demo** is `dbdocs deploy`'d (not `generate`'d) from the committed
+  `tests/fixtures/jaffle_shop` artifacts via `docs/dbdocs-demo.yml` into
+  `docs/demo/` (gitignored) — a versioned tree (`<version>/`, `latest/`,
+  `versions.json`) so the demo SPA renders its own version switcher. `mike` then
+  nests the whole docs build under its version alias, so the demo lands at
+  **`/latest/demo/latest/`** — links point there. Locally (`mkdocs serve`, no
+  mike prefix) it's at `/demo/latest/`.
 
 ### CI/CD
 
 GitHub Actions under `.github/workflows/`: `ci_pr.yml` (lint + 100%-coverage
-tests across Python 3.10–3.13 on Linux/macOS/Windows), `pypi-publish.yml`
-(trusted-publisher PyPI release on tag push), `publish-docs.yml` (mike deploy +
-the bundled jaffle_shop demo), `stale.yml`.
+tests across Python 3.10–3.13 on Linux/macOS/Windows, plus an independent `e2e`
+job — Node + Playwright against a real demo build, kept out of the coverage
+gate), `pypi-publish.yml` (trusted-publisher PyPI release on tag push),
+`publish-docs.yml` (mike deploy + the versioned jaffle_shop demo), `stale.yml`.
 
 ### CLI lifecycle
 
 `dbdocs` has three commands: `generate` (read artifacts → build the data dict →
-emit the self-contained `site/index.html` + `site/dbdocs-data.json`) → `serve`
-(stdlib `http.server` over the output dir; no live-reload — re-run generate) →
-`deploy` (versioned build into `site/<version>/` + `versions.json`, no mike).
-Site config lives in an optional `dbdocs.yml` (see `dbdocs.yml.example`):
-`target_dir` (artifacts in), `output_dir` (site out), and an optional `dialect`
-override for column-lineage parsing (defaults to the artifact's `adapter_type`).
+emit `site/index.html` + the external `site/dbdocs-data.json.gz` the SPA fetches,
+plus a `dbdocs-data.json` debug dump) → `serve` (stdlib `http.server` over the
+output dir; required since the data loads over HTTP; no live-reload — re-run
+generate) → `deploy` (versioned build into `site/<version>/` + `versions.json`,
+no mike). Site config lives in an optional `dbdocs.yml` (see `dbdocs.yml.example`):
+`target_dir` (artifacts in), `output_dir` (site out), optional `dialect` override
+for column-lineage parsing, optional `logo`/`favicon` overrides, and a `dbterd`
+block (e.g. `algo`) controlling ERD relationship detection.
 
 ## Conventions
 
@@ -116,8 +130,11 @@ override for column-lineage parsing (defaults to the artifact's `adapter_type`).
 - No backward-compat shims unless explicitly asked.
 - DRY in tests — share fixtures via `tests/conftest.py`.
 - The SPA (vanilla JS under `site/bundle/`) owns presentation; the Python only
-  assembles the data dict. Vendored JS libs are committed (offline, no CDN) and
-  shipped in the wheel via the `dbdocs/site/bundle/**/*` artifacts glob.
+  assembles the data dict. The shell is native ES modules in 3 tiers under
+  `assets/js/` (`data` → `service` → `ui`, one-way) — keep `service` DOM-free and
+  `ui` the only DOM toucher; no bundler for the shell. Vendored JS libs are
+  committed (offline, no CDN) and shipped in the wheel via the
+  `dbdocs/site/bundle/**/*` artifacts glob.
 - The interactive graphs (DAG + ERD) are a React Flow app under `frontend/`
   (React+TS, Vite). Graph-UI changes need Node: `task frontend:install &&
   task frontend:build` rebuilds the **committed** bundle at

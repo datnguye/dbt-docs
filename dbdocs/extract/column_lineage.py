@@ -12,6 +12,7 @@ must never sink the whole ``generate`` — it's caught, logged, and skipped, and
 the run reports how many were skipped.
 """
 
+from concurrent.futures import ProcessPoolExecutor
 from typing import Any
 
 from sqlglot import exp
@@ -27,11 +28,108 @@ _DIALECT_ALIASES = {
     "databricks": "spark",
 }
 
+#: Parse + qualify is CPU-bound and embarrassingly parallel across models. Below
+#: this model count the ProcessPoolExecutor's spawn + pickle overhead outweighs
+#: the win, so we stay serial; at or above it we fan out across cores.
+_PARALLEL_THRESHOLD = 500
+
+#: Errors a single model's lineage may raise that must not sink the whole run.
+_MODEL_ERRORS = (SqlglotError, LineageError, KeyError, ValueError, RecursionError)
+
 
 def _to_dialect(adapter_type: "str | None") -> "str | None":
     if not adapter_type:
         return None
     return _DIALECT_ALIASES.get(adapter_type, adapter_type)
+
+
+def _map_table(table: exp.Table, relation_to_node: dict) -> "str | None":
+    """Map a sqlglot ``Table`` to a dbt unique_id via the relation index."""
+    candidates = [
+        f"{table.catalog}.{table.db}.{table.name}",
+        f"{table.db}.{table.name}",
+        table.name,
+    ]
+    for candidate in candidates:
+        mapped = relation_to_node.get(candidate.lower().strip("."))
+        if mapped:
+            return mapped
+    return None
+
+
+def _leaf_columns(root: Node, relation_to_node: dict) -> list:
+    """Collect distinct upstream ``{node, column}`` leaves of a lineage tree.
+
+    A leaf is a node whose source is a real ``Table`` (not a CTE/subquery scope)
+    that maps back to a dbt node. The root itself is skipped.
+    """
+    seen = set()
+    upstream = []
+    for node in root.walk():
+        if node is root:
+            continue
+        source = node.source
+        if not isinstance(source, exp.Table):
+            continue
+        mapped = _map_table(source, relation_to_node)
+        if mapped is None:
+            continue
+        column = node_name(node.name)
+        key = (mapped, column)
+        if key in seen:
+            continue
+        seen.add(key)
+        upstream.append({"node": mapped, "column": column})
+    return upstream
+
+
+def _extract_model_columns(
+    unique_id: str,
+    compiled: str,
+    output_columns: list,
+    schema: dict,
+    dialect: "str | None",
+    relation_to_node: dict,
+) -> dict:
+    """Trace every output column of one model to its upstream columns.
+
+    Pure and picklable (plain str/list/dict args, no manifest/catalog objects) so
+    it runs unchanged in the serial loop or a ``ProcessPoolExecutor`` worker.
+    Builds the scope once per model — qualify is the expensive part and is
+    identical for every column — then traces each column against it.
+    """
+    out: dict = {}
+    scope = prepare_scope(compiled, schema=schema, dialect=dialect)
+    for column in output_columns:
+        try:
+            root = lineage(column, compiled, dialect=dialect, scope=scope)
+        except SqlglotError:
+            # One unresolvable column shouldn't drop the rest of the model.
+            continue
+        upstream = _leaf_columns(root, relation_to_node)
+        if upstream:
+            out[f"{unique_id}.{column}"] = upstream
+    return out
+
+
+def _extract_model_task(work: tuple) -> tuple:
+    """Worker wrapper: returns ``(unique_id, columns_map, error_str_or_None)``.
+
+    Catching here (rather than letting the exception cross the process boundary)
+    keeps the fail-soft contract: one unparseable model is reported and skipped,
+    never sinking the pool.
+    """
+    unique_id, compiled, output_columns, schema, dialect, relation_to_node = work
+    try:
+        return (
+            unique_id,
+            _extract_model_columns(
+                unique_id, compiled, output_columns, schema, dialect, relation_to_node
+            ),
+            None,
+        )
+    except _MODEL_ERRORS as exc:
+        return unique_id, {}, str(exc)
 
 
 class ColumnLineageExtractor:
@@ -54,86 +152,74 @@ class ColumnLineageExtractor:
         self.skipped = 0
 
     def extract(self) -> dict:
-        """Return the ``columnLineage`` map across all models (fail-soft)."""
+        """Return the ``columnLineage`` map across all models (fail-soft).
+
+        Runs serially for small projects; fans the per-model sqlglot work across
+        processes once a project has ``_PARALLEL_THRESHOLD`` models or more, where
+        the CPU-bound parse/qualify dominates the pool's spawn cost.
+        """
+        work = self._work_items()
+        if not work:
+            return {}
+        if len(work) >= _PARALLEL_THRESHOLD:
+            results = self._extract_parallel(work)
+        else:
+            results = (_extract_model_task(item) for item in work)
+
         result: dict = {}
+        for unique_id, columns, error in results:
+            if error is not None:
+                self.skipped += 1
+                logger.warning("Column lineage skipped for %s: %s", node_name(unique_id), error)
+                continue
+            result.update(columns)
+        if self.skipped:
+            logger.info("Column lineage: skipped %s model(s) that failed to parse.", self.skipped)
+        return result
+
+    def _extract_parallel(self, work: list) -> list:
+        """Run the per-model tasks across a process pool, returning their results."""
+        with ProcessPoolExecutor() as pool:
+            return list(pool.map(_extract_model_task, work))
+
+    def _work_items(self) -> list:
+        """Build the picklable per-model work tuples for the (serial or pool) run.
+
+        Each item is ``(unique_id, compiled, output_columns, schema, dialect,
+        relation_to_node)`` — all plain str/list/dict, so it crosses a process
+        boundary cleanly (the Pydantic manifest/catalog never do).
+        """
+        work = []
         for unique_id, model in (getattr(self.manifest, "nodes", {}) or {}).items():
             if not str(unique_id).startswith("model."):
                 continue
             compiled = getattr(model, "compiled_code", "") or ""
             if not compiled.strip():
                 continue
-            try:
-                self._extract_model(unique_id, compiled, result)
-            except (SqlglotError, LineageError, KeyError, ValueError, RecursionError) as exc:
-                self.skipped += 1
-                logger.warning("Column lineage skipped for %s: %s", node_name(unique_id), exc)
-        if self.skipped:
-            logger.info("Column lineage: skipped %s model(s) that failed to parse.", self.skipped)
-        return result
+            output_columns = self._output_columns(unique_id, model)
+            if not output_columns:
+                continue
+            work.append(
+                (
+                    unique_id,
+                    compiled,
+                    output_columns,
+                    self.schema,
+                    self.dialect,
+                    self._relation_to_node,
+                )
+            )
+        return work
 
-    def _extract_model(self, unique_id: str, compiled: str, result: dict) -> None:
-        node = self.manifest.nodes[unique_id]
-        output_columns = [c for c in (getattr(node, "columns", {}) or {})]
-        # Fall back to the catalog's column list when the manifest has none.
+    def _output_columns(self, unique_id: str, model: Any) -> list:
+        """The model's documented columns, falling back to the catalog's list."""
+        output_columns = [c for c in (getattr(model, "columns", {}) or {})]
         if not output_columns:
             catalog_node = (getattr(self.catalog, "nodes", {}) or {}).get(unique_id)
             output_columns = (
                 list(getattr(catalog_node, "columns", {}) or {}) if catalog_node else []
             )
-        if not output_columns:
-            return
-        # Build the scope once per model, then trace each column against it —
-        # qualify is the expensive part and is identical for every column.
-        scope = prepare_scope(compiled, schema=self.schema, dialect=self.dialect)
-        for column in output_columns:
-            try:
-                root = lineage(column, compiled, dialect=self.dialect, scope=scope)
-            except SqlglotError:
-                # One unresolvable column shouldn't drop the rest of the model.
-                continue
-            upstream = self._leaf_columns(root)
-            if upstream:
-                result[f"{unique_id}.{column}"] = upstream
-
-    def _leaf_columns(self, root: Node) -> list:
-        """Collect distinct upstream ``{node, column}`` leaves of a lineage tree.
-
-        A leaf is a node whose source is a real ``Table`` (not a CTE/subquery
-        scope) that we can map back to a dbt node. The root itself is skipped.
-        """
-        seen = set()
-        upstream = []
-        for node in root.walk():
-            if node is root:
-                continue
-            source = node.source
-            if not isinstance(source, exp.Table):
-                continue
-            mapped = self._map_table(source)
-            if mapped is None:
-                continue
-            column = node_name(node.name)
-            key = (mapped, column)
-            if key in seen:
-                continue
-            seen.add(key)
-            upstream.append({"node": mapped, "column": column})
-        return upstream
-
-    def _map_table(self, table: exp.Table) -> "str | None":
-        catalog = table.catalog
-        db = table.db
-        name = table.name
-        candidates = [
-            f"{catalog}.{db}.{name}",
-            f"{db}.{name}",
-            name,
-        ]
-        for candidate in candidates:
-            mapped = self._relation_to_node.get(candidate.lower().strip("."))
-            if mapped:
-                return mapped
-        return None
+        return output_columns
 
     def _relation_index(self) -> dict:
         """Map ``db.schema.table`` (and shorter forms) → dbt unique_id."""

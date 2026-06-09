@@ -25,6 +25,21 @@ def test_extract_traces_columns_to_source(fake_manifest, fake_catalog):
     assert "model.shop.stg_customers" in nodes_hit
 
 
+def test_extract_runs_in_parallel_above_threshold(monkeypatch, fake_manifest, fake_catalog):
+    # Force the parallel path on the small fixture by lowering the threshold,
+    # then run a real ProcessPoolExecutor end to end — same result as serial.
+    monkeypatch.setattr(column_lineage, "_PARALLEL_THRESHOLD", 1)
+    extractor = ColumnLineageExtractor(fake_manifest, fake_catalog, dialect="snowflake")
+    result = extractor.extract()
+    assert extractor.skipped == 0
+    assert result.get("model.shop.customers.id") is not None
+
+
+def test_extract_empty_when_no_models(fake_catalog):
+    manifest = SimpleNamespace(nodes={}, sources={})
+    assert ColumnLineageExtractor(manifest, fake_catalog).extract() == {}
+
+
 def test_extract_skips_unparseable_model(fake_manifest, fake_catalog):
     fake_manifest.nodes["model.shop.customers"].compiled_code = "this is not valid SQL )("
     extractor = ColumnLineageExtractor(fake_manifest, fake_catalog, dialect="snowflake")
@@ -74,24 +89,25 @@ def test_extract_skips_column_absent_from_select(fake_manifest, fake_catalog):
 
 def test_relation_index_and_map_table(fake_manifest, fake_catalog):
     extractor = ColumnLineageExtractor(fake_manifest, fake_catalog)
+    rel = extractor._relation_to_node
     # db.raw.raw_customers maps back to the source node.
     table = SimpleNamespace(catalog="db", db="raw", name="raw_customers")
-    assert extractor._map_table(table) == "source.shop.ecom.raw_customers"
+    assert column_lineage._map_table(table, rel) == "source.shop.ecom.raw_customers"
     # An unknown table maps to None.
     unknown = SimpleNamespace(catalog="x", db="y", name="z")
-    assert extractor._map_table(unknown) is None
+    assert column_lineage._map_table(unknown, rel) is None
 
 
 def test_extract_warns_and_counts_when_internal_error(monkeypatch, fake_manifest, fake_catalog):
     extractor = ColumnLineageExtractor(fake_manifest, fake_catalog, dialect="snowflake")
 
-    def _boom(unique_id, compiled, result):
-        raise ValueError("boom")
+    def _boom(work):
+        return work[0], {}, "boom"
 
-    monkeypatch.setattr(extractor, "_extract_model", _boom)
+    monkeypatch.setattr(column_lineage, "_extract_model_task", _boom)
     result = extractor.extract()
     assert result == {}
-    assert extractor.skipped == 2  # both models raised
+    assert extractor.skipped == 2  # both models reported an error
 
 
 def test_schema_from_catalog_handles_missing_column_type(fake_manifest):
@@ -177,7 +193,7 @@ def test_leaf_columns_dedupes_and_skips_unmapped(fake_manifest, fake_catalog):
         yield from leaves
 
     root.walk = walk
-    result = extractor._leaf_columns(root)
+    result = column_lineage._leaf_columns(root, extractor._relation_to_node)
     # The known table appears once (deduped); unknown + non-table dropped.
     assert result == [{"node": "source.shop.ecom.raw_customers", "column": "id"}]
 

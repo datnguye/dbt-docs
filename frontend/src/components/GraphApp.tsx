@@ -10,13 +10,18 @@ import {
   type Node,
   type NodeMouseHandler,
 } from "@xyflow/react";
-import { buildDagFlow, buildErdFlow, neighborhood } from "./data";
-import { applyPositions, asLayoutEdges, layoutNodes } from "./layout";
-import { ErdTableNode } from "./nodes/ErdTableNode";
-import { LineageNode } from "./nodes/LineageNode";
-import type { DbdocsData, GraphMode } from "./types";
+import { buildDagFlow, buildErdFlow, neighborhood } from "@/lib/data";
+import { applyPositions, asLayoutEdges, layoutNodes } from "@/lib/layout";
+import { ErdTableNode } from "@/components/nodes/ErdTableNode";
+import { LineageNode } from "@/components/nodes/LineageNode";
+import type { DbdocsData, GraphMode } from "@/lib/types";
 
 const nodeTypes = { lineage: LineageNode, erdTable: ErdTableNode };
+
+// Above this node count, the unfocused DAG won't render the whole graph (dagre
+// layout + React Flow on 1000s of nodes freezes the browser). The user focuses a
+// node (or filters by type/schema) to render a tractable neighborhood instead.
+const MAX_UNFOCUSED_DAG_NODES = 400;
 
 interface Props {
   mode: GraphMode;
@@ -63,40 +68,46 @@ export function GraphApp({ mode, focus, data, onOpenNode }: Props): ReactElement
     );
   }, [isDag, search, focus, data]);
 
+  // The set of node ids to actually build/lay out for the DAG. Windowing the
+  // graph *before* layout is what keeps large projects from freezing: focus →
+  // the bounded neighborhood; otherwise the dropdown-filtered set; and if that's
+  // still over the cap, nothing (the placeholder below asks the user to focus).
+  const dagKeep = useMemo(() => {
+    if (!isDag) return null;
+    if (focusId) return neighborhood(data, focusId);
+    const ids = Object.keys(data.nodes ?? {}).filter((id) => {
+      const rec = data.nodes[id];
+      if (rtype && rec.resource_type !== rtype) return false;
+      if (schema && rec.schema !== schema) return false;
+      return true;
+    });
+    if (ids.length > MAX_UNFOCUSED_DAG_NODES) return new Set<string>();
+    return new Set(ids);
+  }, [isDag, focusId, data, rtype, schema]);
+
+  const dagTooLarge = isDag && !focusId && dagKeep !== null && dagKeep.size === 0;
+
   const { nodes, edges } = useMemo(() => {
-    const flow = isDag ? buildDagFlow(data) : buildErdFlow(data, mode === "erd-node" ? focus : null);
+    if (dagTooLarge) return { nodes: [], edges: [] };
+    const flow = isDag
+      ? buildDagFlow(data, dagKeep ?? undefined)
+      : buildErdFlow(data, mode === "erd-node" ? focus : null);
     const positions = layoutNodes(flow.sizes, asLayoutEdges(flow.edges));
     let laidNodes = applyPositions(flow.nodes, positions);
     let laidEdges = flow.edges;
 
     if (isDag) {
-      const hot = focusId ? neighborhood(data, focusId) : null;
-      laidNodes = laidNodes
-        .filter((n) => {
-          const rec = data.nodes[n.id];
-          if (rtype && rec.resource_type !== rtype) return false;
-          if (schema && rec.schema !== schema) return false;
-          return true;
-        })
-        .map((n) => ({
-          ...n,
-          data: { ...n.data, dimmed: hot ? !hot.has(n.id) : false, focused: n.id === focusId },
-        }));
-      const visible = new Set(laidNodes.map((n) => n.id));
-      laidEdges = flow.edges
-        .filter((e) => visible.has(e.source) && visible.has(e.target))
-        .map((e) => {
-          const inHot = hot && hot.has(e.source) && hot.has(e.target);
-          return {
-            ...e,
-            animated: !!inHot,
-            style: hot
-              ? inHot
-                ? { stroke: "var(--accent, #2f6feb)", strokeWidth: 2 }
-                : { opacity: 0.12 }
-              : undefined,
-          };
-        });
+      // Within the windowed set, the focused node + its neighbors are lit; the
+      // rest (e.g. the dropdown-filtered overview) render plain.
+      laidNodes = laidNodes.map((n) => ({
+        ...n,
+        data: { ...n.data, dimmed: false, focused: n.id === focusId },
+      }));
+      laidEdges = flow.edges.map((e) => ({
+        ...e,
+        animated: !!focusId,
+        style: focusId ? { stroke: "var(--accent, #2f6feb)", strokeWidth: 2 } : undefined,
+      }));
     } else if (selectedEdge) {
       // ERD edge selected: highlight that relationship + its two tables; dim rest.
       const lit = new Set([selectedEdge.source, selectedEdge.target]);
@@ -113,7 +124,10 @@ export function GraphApp({ mode, focus, data, onOpenNode }: Props): ReactElement
       });
     }
     return { nodes: laidNodes as Node[], edges: laidEdges as Edge[] };
-  }, [isDag, mode, focus, focusId, data, rtype, schema, selectedEdge]);
+  }, [isDag, mode, focus, focusId, data, dagKeep, dagTooLarge, selectedEdge]);
+
+  const erdNodeEmpty = mode === "erd-node" && edges.length === 0;
+  const erdAlgo = data.metadata?.erd_algo ?? "test_relationship";
 
   const onNodeClick: NodeMouseHandler = (_e, node) => {
     if (onOpenNode) onOpenNode(node.id);
@@ -167,7 +181,32 @@ export function GraphApp({ mode, focus, data, onOpenNode }: Props): ReactElement
         </div>
       )}
       <div className="dbd-canvas">
-        <ReactFlowProvider>
+        {dagTooLarge ? (
+          <div className="dbd-graph-empty">
+            <p>
+              This project has too many models to draw the full lineage at once.
+              Focus a node above (or filter by type/schema) to explore its
+              neighborhood.
+            </p>
+          </div>
+        ) : erdNodeEmpty ? (
+          <div className="dbd-graph-empty">
+            <p>
+              No ERD relationships detected for this entity using the{" "}
+              <code>{erdAlgo}</code> algorithm. dbterd infers foreign keys from
+              your project; see{" "}
+              <a
+                href="https://dbterd.datnguye.me/latest/nav/guide/choose-algo.html"
+                target="_blank"
+                rel="noopener"
+              >
+                choosing a dbterd algorithm
+              </a>{" "}
+              to configure detection.
+            </p>
+          </div>
+        ) : (
+          <ReactFlowProvider>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -198,7 +237,8 @@ export function GraphApp({ mode, focus, data, onOpenNode }: Props): ReactElement
             {interactive && <Controls showInteractive={false} />}
             {interactive && <MiniMap pannable zoomable />}
           </ReactFlow>
-        </ReactFlowProvider>
+          </ReactFlowProvider>
+        )}
       </div>
     </div>
   );

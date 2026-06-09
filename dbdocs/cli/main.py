@@ -40,7 +40,7 @@ def dbdocs(ctx, config_path):
 )
 @click.pass_obj
 def generate(config: DbDocsConfig, output_dir, dialect):
-    """Build the self-contained site from dbt artifacts."""
+    """Build the site from dbt artifacts (served over HTTP; data loaded externally)."""
     if dialect is not None:
         config.dialect = dialect
     try:

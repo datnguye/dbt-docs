@@ -3,11 +3,12 @@
 Unlike the unit tests, these do **not** mock dbterd/sqlglot. They stage the
 bundled jaffle-shop (manifest schema v12) artifacts into a throwaway dbt project
 and exercise ``ReportBuilder.generate()`` end to end, asserting on the actual
-generated ``index.html`` + injected data dict.
+generated ``index.html`` + the external ``dbdocs-data.json.gz`` payload the SPA
+fetches.
 """
 
-import base64
 import dataclasses
+import gzip
 import json
 from pathlib import Path
 
@@ -18,9 +19,9 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DEMO_CONFIG = REPO_ROOT / "docs" / "dbdocs-demo.yml"
 
 
-def _injected_data(index_html: str) -> dict:
-    payload = index_html.split('atob("')[1].split('")')[0]
-    return json.loads(base64.b64decode(payload).decode("utf-8"))
+def _site_data(site: Path) -> dict:
+    """The data dict the SPA loads — read back from the gzipped payload."""
+    return json.loads(gzip.decompress((site / "dbdocs-data.json.gz").read_bytes()))
 
 
 def test_generate_produces_self_contained_site(jaffle_project):
@@ -30,16 +31,18 @@ def test_generate_produces_self_contained_site(jaffle_project):
     site = Path(out)
     index = site / "index.html"
     assert index.is_file()
-    assert (site / "assets" / "app.js").is_file()
+    assert (site / "assets" / "js" / "app.js").is_file()
     # The React Flow graph bundle is staged (no more Mermaid).
     assert (site / "assets" / "graph" / "index.js").is_file()
 
     html = index.read_text(encoding="utf-8")
-    assert "window.dbdocsData" in html
+    # Data is external (not inlined): the HTML stays small, the marker is gone.
+    assert "window.dbdocsData" not in html
+    assert "<!-- DBDOCS_DATA -->" not in html
     assert "assets/graph/index.js" in html
     assert "mermaid" not in html
 
-    data = _injected_data(html)
+    data = _site_data(site)
     assert data["metadata"]["site_name"] == "Jaffle Shop Docs"
     assert data["metadata"]["adapter_type"] == "snowflake"
     # jaffle-shop: 15 models + 6 sources + 6 seeds.
@@ -72,7 +75,7 @@ def test_generate_is_idempotent(jaffle_project):
 def test_demo_config_generates_a_valid_site(tmp_path, monkeypatch):
     """Headless verify the live-demo build: the real ``docs/dbdocs-demo.yml``
     config + committed ``tests/fixtures/jaffle_shop`` artifacts must produce a
-    self-contained site.
+    valid site.
 
     The demo config's ``target_dir`` (``tests/fixtures/jaffle_shop``) and
     ``output_dir`` (``docs/demo``) are relative, resolved against the cwd, so the
@@ -88,13 +91,13 @@ def test_demo_config_generates_a_valid_site(tmp_path, monkeypatch):
     site = Path(out)
     index = site / "index.html"
     assert index.is_file()
-    assert (site / "assets" / "app.js").is_file()
+    assert (site / "assets" / "js" / "app.js").is_file()
     assert (site / "assets" / "graph" / "index.js").is_file()
 
     html = index.read_text(encoding="utf-8")
-    assert "window.dbdocsData" in html
+    assert "window.dbdocsData" not in html
 
-    data = _injected_data(html)
+    data = _site_data(site)
     # Display metadata comes straight from the demo config.
     assert data["metadata"]["site_name"] == "dbdocs demo — jaffle_shop"
     assert data["metadata"]["adapter_type"] == "snowflake"

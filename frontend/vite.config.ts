@@ -9,6 +9,9 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   base: "./",
+  resolve: {
+    alias: { "@": path.resolve(__dirname, "src") },
+  },
   // The IIFE lib build inlines React; force the production build so React's
   // `process.env.NODE_ENV` references are replaced (no `process` at runtime).
   define: {
@@ -34,6 +37,6 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     globals: true,
-    include: ["tests/**/*.test.{ts,tsx}"],
+    include: ["test/unit/**/*.test.{ts,tsx}"],
   },
 });
