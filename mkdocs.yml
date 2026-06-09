@@ -103,7 +103,7 @@ extra:
       make our documentation better.
   analytics:
     provider: google
-    property: G-2VCVJ0SLS6
+    property: G-Z3QT3B3FYW
     feedback:
       title: Was this page helpful?
       ratings:
