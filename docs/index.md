@@ -15,6 +15,21 @@ The demo is a real dbdocs site built from the
 [jaffle_shop](https://github.com/dbt-labs/jaffle_shop) dbt project — poke around
 the catalog, the lineage DAG, the ERD, and column-level lineage.
 
+<a href="/latest/demo/" target="_blank">
+  <img src="assets/img/demo-catalog.png" alt="The dbdocs catalog overview, with project counts and the entity-relationship diagram" loading="lazy">
+</a>
+<p align="center"><em>The catalog overview — project counts and the entity-relationship diagram, grouped by database and schema.</em></p>
+
+<a href="/latest/demo/#/dag" target="_blank">
+  <img src="assets/img/demo-model-dag.png" alt="The interactive lineage DAG in dbdocs" loading="lazy">
+</a>
+<p align="center"><em>The interactive lineage DAG — pan, zoom, filter, and deep-link to any node.</em></p>
+
+<a href="/latest/demo/#/node/model.jaffle_shop.orders" target="_blank">
+  <img src="assets/img/demo-model-page.png" alt="A dbdocs model page showing the column table with upstream column-level lineage" loading="lazy">
+</a>
+<p align="center"><em>Per-model detail — every column with its type, description, and <strong>upstream column-level lineage</strong> traced from compiled SQL.</em></p>
+
 ---
 
 ## What you get
