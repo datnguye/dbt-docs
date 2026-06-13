@@ -17,12 +17,19 @@ from dbdocs.core.config import DbDocsConfig
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 JAFFLE_SHOP_ARTIFACTS = FIXTURES_DIR / "jaffle_shop"
+RUN_RESULTS = JAFFLE_SHOP_ARTIFACTS / "run_results.json"
 
 
 @pytest.fixture
 def config(tmp_path):
     """A config whose target/output dirs point at fresh tmp dirs."""
     return DbDocsConfig(target_dir=str(tmp_path / "target"), output_dir=str(tmp_path / "site"))
+
+
+@pytest.fixture
+def run_results_path():
+    """Path to the sanitized plain-dbt run_results.json fixture (29 tests)."""
+    return RUN_RESULTS
 
 
 @pytest.fixture

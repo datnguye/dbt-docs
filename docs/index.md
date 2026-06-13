@@ -4,9 +4,9 @@
   <img src="assets/logo.svg" alt="dbdocs logo" width="220" height="88">
 </p>
 
-<p align="center"><b>An alternative dbt docs site — catalog + ERD + column-level lineage.</b></p>
+<p align="center"><b>An alternative dbt docs site — catalog + ERD + column-level lineage + versioned deploys, all in one CLI.</b></p>
 
-Turn your dbt artifacts into a single self-contained `index.html`: a browsable catalog, an interactive lineage DAG and ERD, and **column-level lineage** derived straight from your compiled SQL. No server, no database, no build step — just a file you can open or host anywhere.
+Turn your dbt artifacts into a self-contained docs site: a browsable catalog, an entity-relationship diagram, an interactive lineage DAG, and **column-level lineage** traced from your compiled SQL — all in one `dbdocs generate`. No server, no database, no build step. Serve it with `dbdocs serve`, or deploy versioned builds anywhere a static host will take them.
 
 [:rocket: Try the live demo](/latest/demo/latest/){ .md-button .md-button--primary target="_blank" }
 [Quickstart](./nav/guide/quickstart.md){ .md-button }
@@ -34,14 +34,46 @@ the catalog, the lineage DAG, the ERD, and column-level lineage.
 
 ## What you get
 
-dbt's own docs are great until you want lineage at the *column* level — that's the gap dbdocs fills.
+dbt's built-in docs are great — right up until you want to know *which upstream column fed this downstream column*, or *which tables relate to each other*, or *what changed between last week's docs and today's*. dbdocs fills all three gaps without asking you to install a documentation framework or maintain a separate ERD tool.
 
-- **Catalog navigation** grouped by database and schema, with client-side search (no backend).
+### ERD + column-level lineage, side by side
+
+The entity-relationship diagram (powered by [dbterd](https://github.com/datnguye/dbterd)) shows table relationships; column lineage (traced by [sqlglot](https://github.com/tobymao/sqlglot) from compiled SQL) shows exactly which column fed which. Most alternatives give you one or the other — dbdocs gives you both, in the same site, from the same artifacts.
+
+### Column impact analysis
+
+Select any column and see its downstream dependents across the project. Know what a schema change will break before you run it — not after.
+
+### Deep-link URLs
+
+Every focused node, column, and filtered DAG view has a shareable URL. Paste it in Slack and your teammate lands on exactly the right model, column, or graph state — no "go to the DAG and find orders and then…" required.
+
+### Any sqlglot-supported dialect
+
+The dialect for column-lineage parsing is auto-detected from your manifest's `adapter_type` (Snowflake, BigQuery, Redshift, DuckDB, PostgreSQL, Databricks/Spark, Trino, and more — anything [sqlglot](https://github.com/tobymao/sqlglot) understands). Override it per-project with `dialect:` in `dbdocs.yml` when auto-detection isn't enough.
+
+### Scales without freezing
+
+Column-lineage parsing fans out across CPU cores automatically above 500 models, so large projects finish in roughly the same wall-clock time as small ones. The React Flow DAG is windowed, so a 1 000-model graph doesn't turn your browser into a space heater. The data payload ships as an external gzip (`dbdocs-data.json.gz`, decompressed client-side by the browser's native `DecompressionStream`) — `index.html` stays tiny regardless of project size.
+
+### Fail-soft
+
+One model with SQL sqlglot can't parse gets logged and skipped. It never sinks the whole generate run, so a single dialect quirk or macro-heavy model doesn't block you from seeing the rest of your project.
+
+### Project Health Check
+
+The SPA always includes a Health Check page, built from the `run_results.json` that a `dbt build`/`dbt test` produced (default: `<target_dir>/run_results.json`, override with `--run-results`). Every dbt test becomes a finding, grouped by what it checks — integrity (not-null/unique), referential (relationships), validity (accepted values), business logic (expressions), and freshness. The test type, tested model, and column come from your `manifest.json`. dbdocs only reads the static artifact; it never runs dbt and never touches your warehouse, so the page reflects exactly your last build. Missing or malformed `run_results.json`? Fail-soft: the page simply stays empty and a warning is logged, not a stack trace.
+
+### Versioned deploys, no plugins
+
+`dbdocs deploy --version v1.2 --alias latest` generates into a plain directory tree, writes a `versions.json` index, and the SPA renders a version dropdown. No mike, no external tooling, no surprise dependencies — any static host can serve the output.
+
+### Everything else you'd expect
+
+- **Catalog navigation** grouped by database and schema, with client-side full-text search (no backend).
 - **Per-model detail** — columns (type / tags / description), compiled and raw SQL, and the macros each model resolves.
-- **Interactive graphs** — a node-level lineage DAG and an ERD, both built on [React Flow](https://reactflow.dev/): pan / zoom / minimap, automatic [dagre](https://github.com/dagrejs/dagre) layout, filter-and-focus, and deep-links to any node.
-- **Column-level lineage** traced from each model's compiled SQL via [sqlglot](https://github.com/tobymao/sqlglot).
+- **Interactive graphs** — both the lineage DAG and the ERD are built on [React Flow](https://reactflow.dev/): pan / zoom / minimap, automatic [dagre](https://github.com/dagrejs/dagre) layout, and filter-and-focus.
 - **Dark / light** theme.
-- **Versioned deploy** with a built-in version dropdown — no mike, no plugins.
 
 ---
 
@@ -76,9 +108,13 @@ dbt docs generate           # writes target/manifest.json + target/catalog.json
 Then generate, serve, and open the site:
 
 ```bash
-dbdocs generate             # builds ./site/index.html with all data baked in
+dbdocs generate             # builds ./site/ with index.html + dbdocs-data.json.gz
 dbdocs serve                # static http server on http://127.0.0.1:8000
 ```
+
+The site must be served over HTTP (not opened as a local file) because it fetches
+the data payload at load time. `dbdocs serve` handles that locally; any static host
+works for deployment.
 
 Head to the [Quickstart guide](./nav/guide/quickstart.md) for the full walkthrough.
 

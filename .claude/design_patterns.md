@@ -9,17 +9,44 @@ authoritative; grep it.
 - [Design patterns](#design-patterns)
   - [Table of contents](#table-of-contents)
   - [Pipeline-stage package layout](#pipeline-stage-package-layout)
+    - [Theory](#theory)
+    - [Example](#example)
   - [One data dict + external gzip payload](#one-data-dict--external-gzip-payload)
+    - [Theory](#theory-1)
+    - [Example](#example-1)
   - [SPA 3-tier ES modules (data → service → ui)](#spa-3-tier-es-modules-data--service--ui)
+    - [Theory](#theory-2)
+    - [Example](#example-2)
   - [Config object from dbdocs.yml](#config-object-from-dbdocsyml)
+    - [Theory](#theory-3)
+    - [Example](#example-3)
   - [Centralized artifact loading + the schema\_ gotcha](#centralized-artifact-loading--the-schema_-gotcha)
+    - [Theory](#theory-4)
+    - [Example](#example-4)
   - [Manifest-base columns, catalog-enriched](#manifest-base-columns-catalog-enriched)
+    - [Theory](#theory-5)
+    - [Example](#example-5)
   - [Fail-soft, parallel column-level lineage](#fail-soft-parallel-column-level-lineage)
+    - [Theory](#theory-6)
+    - [Example](#example-6)
   - [Windowed graph rendering](#windowed-graph-rendering)
+    - [Theory](#theory-7)
+    - [Example](#example-7)
   - [Bundled SPA directory resolution](#bundled-spa-directory-resolution)
+    - [Theory](#theory-8)
+    - [Example](#example-8)
   - [Versioned deploy without mike](#versioned-deploy-without-mike)
+    - [Theory](#theory-9)
+    - [Example](#example-9)
   - [Click group entrypoint](#click-group-entrypoint)
+    - [Theory](#theory-10)
+    - [Example](#example-10)
   - [Singleton colored logger](#singleton-colored-logger)
+    - [Theory](#theory-11)
+    - [Example](#example-11)
+  - [Always-built artifact-derived data-dict section (Health Check)](#always-built-artifact-derived-data-dict-section-health-check)
+    - [Theory](#theory-12)
+    - [Example](#example-12)
 
 ## Pipeline-stage package layout
 
@@ -450,3 +477,124 @@ if len(logger.handlers) == 0:  # pragma: no cover - import-time handler guard
 ```
 
 - `dbdocs/core/log.py` — `class LogFormatter`, `logger = logging.getLogger("dbdocs")`
+
+## Always-built artifact-derived data-dict section (Health Check)
+
+### Theory
+
+Some data-dict sections are derived from an **extra artifact** (e.g.
+`run_results.json`) that isn't always present. The section is **always built**
+(no opt-in flag) and **fail-soft to empty** when the artifact is missing; the SPA
+decides whether to *surface* it based on whether it holds anything. The pattern:
+
+1. An optional path field on `DbDocsConfig` (e.g. `run_results: str | None =
+   None`) added to `_NON_METADATA_FIELDS` (build-control, not display metadata).
+   No `bool` enable-flag — the section is unconditional.
+2. A `--run-results` CLI option (path override) that writes back to the config
+   object before `ReportBuilder` is called — same as the existing `--dialect`
+   pattern. No `--evaluator/--no-evaluator` on/off flag.
+3. A dedicated extractor class in `dbdocs/extract/` (e.g. `HealthCheckExtractor`)
+   that reads the artifact and returns a plain dict ready for the data dict. The
+   artifact is parsed with **`artifact-parser`** (`artifact_parser.dbt.parse_run_results`),
+   a versioned-Pydantic parser covering run-results schema v1–v6 — *not* dbterd
+   and *not* the manifest Pydantic parser; a schema/enum rename in a new dbt
+   release then surfaces as a caught error rather than a silent mis-read. The
+   parsed `Result.status` is an enum (`.value` is the plain string — never `str()`
+   it). **Fail-soft**: every IO + parse error is caught with a *specific* type
+   (`FileNotFoundError`/`OSError`, `json.JSONDecodeError`, and the parser's
+   `ArtifactParserError`/Pydantic `ValidationError`), logged, and returns an
+   empty-but-enabled section — a missing file must never sink `generate`. Health
+   works from an **ordinary `dbt build`/`dbt test`** — no extra dbt package: every
+   `test.*` result is a finding, bucketed by test type (`not_null`/`unique` →
+   integrity, `relationships` → referential, `accepted_values` → validity, …). The
+   type isn't in `run_results.json` — it lives in the **manifest**
+   (`test_metadata.name`, `column_name`, `attached_node`), so the extractor is
+   passed the dbterd-parsed manifest and enriches each finding from it, falling
+   back to inferring the type from the `unique_id` when no manifest/node is found.
+4. `ReportBuilder.build_data()` always resolves the path (via `_resolve_within_cwd`
+   with fail-soft on escape, defaulting to `<target_dir>/<artifact>`), calls the
+   extractor, and adds the top-level `health` key unconditionally.
+5. The SPA's `data.js normalize()` defaults the key (`health: {enabled: false}`)
+   so the ui tier never crashes if it's absent in an old payload. `service.js`
+   exposes pure accessors (DOM-free); **`healthEnabled()` keys off `summary.total
+   > 0`** (not a config flag) — so an empty section (no `run_results.json`) means
+   no nav entry / overview card, while a populated one surfaces them. `ui.js`
+   guards rendering behind `healthEnabled()`.
+
+Do not invent a second data-hand-off channel. Extend the single data dict.
+
+### Example
+
+```python
+# dbdocs/site/builder.py — health is always built; fail-soft path resolution
+data = {
+    # ... other sections ...
+    "health": HealthCheckExtractor(
+        self._resolve_run_results_path(), manifest
+    ).extract(),
+}
+
+def _resolve_run_results_path(self) -> str:
+    if self.config.run_results:
+        try:
+            return str(_resolve_within_cwd(self.config.run_results, "run_results"))
+        except DbDocsConfigError:
+            logger.warning("run_results path %r escapes the project directory ...", ...)
+    return str(Path(self.config.target_path) / "run_results.json")
+```
+
+```python
+# dbdocs/extract/health/extractor.py — parse via artifact-parser; specific exception types only
+def _load_results(self) -> "list | None":
+    try:
+        text = self._path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        logger.warning("Health check: run_results.json not found at %s — skipping.", ...)
+        return None
+    except OSError as exc:
+        logger.warning("Health check: could not read %s: %s — skipping.", ...)
+        return None
+    try:
+        raw = json.loads(text)
+    except json.JSONDecodeError as exc:
+        logger.warning("Health check: could not parse %s: %s — skipping.", ...)
+        return None
+    try:
+        run_results = parse_run_results(raw)  # artifact_parser.dbt
+    except (ArtifactParserError, ValidationError) as exc:
+        logger.warning("Health check: %s is not a valid run_results artifact ...", ...)
+        return None
+    return list(run_results.results)
+```
+
+The health data dict has three parts: `dimensions` (the six DPE dimensions, each
+`{issues, checked, findings}`, computed from the manifest by the rule engine),
+`testResults` (the per-test pass/fail detail from `run_results.json`, or `null`),
+and `note` (set when `run_results.json` was absent). The SPA renders a **scorecard
++ collapsible dimension** page; the per-test detail is shown on each **model
+page** (split into Data tests / Unit tests), not on the Health page.
+
+The rule engine is **a package**: the dimension modules live under
+`extract/health/rules/dimensions/{testing,modeling,documentation,structure,performance,governance}.py`,
+with a shared `base.py` (public `finding()`/`docs_url()`, `DEFAULT_THRESHOLDS`,
+`LAYER_PREFIXES`, `NON_PHYSICAL` — no cross-module private imports), `registry.py`
+(the impl: `DIMENSION_RULES` + the plugin API), and a **thin** `__init__.py`
+facade (re-export only — no impl). It is **configurable + pluggable** via
+`dbdocs.yml` `health:` — `thresholds` (read through `graph.threshold(name)`),
+`disable` / `disable_dimensions`, and `rules_module`; plus the `dbdocs.health_rules`
+entry point. `register_rule(dimension)` (decorator or call) appends to the
+module-global `DIMENSION_RULES` — tests must `reset_rules()` between cases (an autouse conftest
+fixture does this).
+
+- `dbdocs/core/config.py` — `run_results`, `health` fields, `_NON_METADATA_FIELDS` (no `evaluator` flag — health is always built)
+- `dbdocs/cli/main.py` — `--run-results` path override (no on/off flag)
+- `dbdocs/extract/health/extractor.py` — `class HealthCheckExtractor`, `TEST_CATEGORIES`, `_is_test_result`, `_is_unit_test`, `_resolve_metadata`, `_unit_test_model`, `_status_value`, `parse_run_results` (from `artifact_parser.dbt`)
+- `dbdocs/extract/health/dimensions.py` — `class ManifestGraph` (adjacency + `threshold`/`layer`/`materialization`/`access`/`tests_for`), `class DimensionAnalyzer` (config wiring, plugin load, disable lists)
+- `dbdocs/extract/health/rules/` — `base.py` (public `finding`, `docs_url`, `DEFAULT_THRESHOLDS`, `LAYER_PREFIXES`, `NON_PHYSICAL`), `dimensions/` (one module per dimension), `registry.py` (`DIMENSION_RULES`, `register_rule`, `reset_rules`, `load_entry_point_rules`, `load_rules_module`, `ENTRY_POINT_GROUP`), `__init__.py` (thin re-export facade)
+- `pyproject.toml` — `artifact-parser[dbt]` runtime dependency
+- `docs/dbdocs-demo.yml` — the documented `health:` block (all thresholds + every rule name under `disable`) + default `run_results`
+- `tests/fixtures/jaffle_shop/run_results.json` — sanitized plain-dbt run (29 tests) whose ids match the committed manifest (co-located with the artifacts so the default `<target_dir>/run_results.json` resolves)
+- `dbdocs/site/builder.py` — `def _resolve_run_results_path`, `def build_data` (health key, `config=config.health`)
+- `dbdocs/site/bundle/assets/js/data.js` — `normalize()` health default (`dimensions`/`testResults`/`note`)
+- `dbdocs/site/bundle/assets/js/service.js` — `healthDimensions`, `healthEnabled` (issues>0), `healthTotalIssues`, `testResultsForNode` (data/unit split)
+- `dbdocs/site/bundle/assets/js/ui.js` — `renderHealth`, `healthScorecard`, `healthDimensionSection`, `nodeTestResults` (model-page Tests)

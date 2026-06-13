@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>dbt docs</title>
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg" />
+  <link rel="stylesheet" href="assets/css/icons.css" />
   <link rel="stylesheet" href="assets/css/style.css" />
   <link rel="stylesheet" href="assets/graph/index.css" />
   <!-- DBDOCS_DATA -->
@@ -42,7 +43,13 @@
     <div class="sidebar-col">
       <nav id="sidebar" class="sidebar" aria-label="Catalog navigation"></nav>
       <footer id="site-footer" class="site-footer"></footer>
+      <button id="nav-collapse" class="nav-collapse" title="Hide navigation" aria-label="Hide navigation" aria-expanded="true">
+        <span class="ic ic--panel-collapse" style="font-size:16px"></span>
+      </button>
     </div>
+    <button id="nav-reopen" class="nav-reopen" title="Show navigation" aria-label="Show navigation">
+      <span class="ic ic--panel-expand" style="font-size:18px"></span>
+    </button>
     <div id="nav-overlay" class="nav-overlay" hidden></div>
     <main id="app" class="content" tabindex="-1"></main>
   </div>

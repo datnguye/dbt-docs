@@ -69,6 +69,18 @@ class DbDocsConfig:
     #: ``resource_type``, …) passed straight to ``DbtErd``. Configured here so the
     #: ERD shape lives in ``dbdocs.yml`` rather than a separate ``.dbterd.yml``.
     dbterd: dict = field(default_factory=dict)
+    #: Path to the ``run_results.json`` parsed for the Health Check (always on).
+    #: If ``None`` (the default), ``<target_dir>/run_results.json`` is used. A
+    #: relative path is resolved against the cwd; a path that escapes the cwd is
+    #: silently ignored (fail-soft, like ``readme`` / ``logo``). When the file is
+    #: absent the Health Check page is simply empty.
+    run_results: "str | None" = None
+    #: Health Check rule engine config (all optional):
+    #: ``thresholds`` (e.g. ``model_fanout: 5``), ``disable`` (rule names to skip),
+    #: ``disable_dimensions`` (whole dimensions to skip), and ``rules_module`` (a
+    #: dotted import path whose ``register_rule`` calls add custom rules). Entry
+    #: points under ``dbdocs.health_rules`` are also discovered automatically.
+    health: dict = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: "str | Path | None" = None) -> "DbDocsConfig":
@@ -110,6 +122,8 @@ class DbDocsConfig:
         "readme",
         "logo",
         "favicon",
+        "run_results",
+        "health",
     )
 
     def render_context(self) -> dict:

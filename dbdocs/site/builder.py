@@ -20,6 +20,7 @@ from dbdocs.core.log import logger
 from dbdocs.extract.column_lineage import ColumnLineageExtractor
 from dbdocs.extract.erd import build_erd, build_erd_data, erd_algo
 from dbdocs.extract.graph import LineageGraph
+from dbdocs.extract.health import HealthCheckExtractor
 from dbdocs.extract.nodes import build_nodes, build_tree
 from dbdocs.site.inject import strip_marker
 
@@ -49,7 +50,7 @@ class ReportBuilder:
         dialect = self.config.dialect or adapter
         column_lineage = ColumnLineageExtractor(manifest, catalog, dialect=dialect).extract()
 
-        return {
+        data: dict = {
             "metadata": {
                 **self.config.render_context(),
                 "generated_at": datetime.now().isoformat(sep=" ", timespec="seconds"),
@@ -64,7 +65,30 @@ class ReportBuilder:
             "erd": erd_data,
             "tree": {"byDatabase": tree},
             "readme": self._read_readme(),
+            # Health Check is always built — fail-soft to an empty (but enabled)
+            # section when no run_results.json is present. ``config.health`` tunes
+            # thresholds / disables rules / loads plugin rules.
+            "health": HealthCheckExtractor(
+                self._resolve_run_results_path(), manifest, config=self.config.health
+            ).extract(),
         }
+        return data
+
+    def _resolve_run_results_path(self) -> str:
+        """Return the path to ``run_results.json`` for the health check extractor.
+
+        If ``config.run_results`` is set, resolve it (fail-soft on escape).
+        Otherwise fall back to ``<target_dir>/run_results.json``.
+        """
+        if self.config.run_results:
+            try:
+                return str(_resolve_within_cwd(self.config.run_results, "run_results"))
+            except DbDocsConfigError:
+                logger.warning(
+                    "run_results path %r escapes the project directory — using default.",
+                    self.config.run_results,
+                )
+        return str(Path(self.config.target_path) / "run_results.json")
 
     def _read_readme(self) -> str:
         """The project README markdown (rendered on the overview), or ``""``.

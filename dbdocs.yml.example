@@ -59,3 +59,51 @@ default_version: latest
 #     - model
 #   select:
 #     - wildcard:model.my_project.mart_*
+
+# --- Health Check ---
+# The SPA always includes a Health Check page: the six dbt-project-evaluator
+# dimensions (testing, modeling, documentation, structure, performance,
+# governance), computed from your manifest.json. dbdocs never runs dbt — it just
+# reads the static artifacts you already generated. The per-test pass/fail detail
+# (data tests + unit tests) comes from run_results.json and is shown on each
+# model page; if run_results.json is missing, that detail is simply skipped.
+#
+# Path to run_results.json. Relative to the working directory; absolute paths
+# are fine. Omit (or leave null) to use the default <target_dir>/run_results.json.
+# A path that escapes the working directory via .. is silently ignored
+# (fail-soft); the default is used instead.
+# run_results: target/run_results.json
+
+# The health rule engine is configurable + pluggable. Every threshold below is
+# its dbt-project-evaluator default.
+# health:
+#   # Rule thresholds (DPE defaults shown).
+#   thresholds:
+#     model_fanout: 3              # > N direct model children is flagged
+#     too_many_joins: 7            # >= N upstream dependencies is flagged
+#     chained_view_dependencies: 4 # >= N-deep view/ephemeral chain is flagged
+#
+#   # Disable individual rules by name. The full built-in set:
+#   #   testing:       test_coverage, missing_primary_key_tests
+#   #   modeling:      direct_join_to_source, duplicate_sources, model_fanout,
+#   #                  multiple_sources_joined, rejoining_of_upstream_concepts,
+#   #                  root_models, source_fanout, staging_dependent_on_staging,
+#   #                  staging_dependent_on_marts_or_intermediate, unused_sources,
+#   #                  too_many_joins
+#   #   documentation: undocumented_models, undocumented_sources,
+#   #                  undocumented_source_tables
+#   #   structure:     model_naming_conventions, model_directories,
+#   #                  source_directories
+#   #   performance:   chained_view_dependencies, exposure_parents_materializations
+#   #   governance:    public_models_without_contracts, undocumented_public_models,
+#   #                  exposures_dependent_on_private_models
+#   disable: []
+#
+#   # Disable whole dimensions: testing, modeling, documentation, structure,
+#   # performance, governance.
+#   disable_dimensions: []
+#
+#   # Load custom rules from a dotted module path; the module calls
+#   # register_rule("<dimension>", fn) at import time. Installed packages can also
+#   # ship rules via the `dbdocs.health_rules` entry-point group.
+#   # rules_module: my_project.dbdocs_health_rules

@@ -117,3 +117,22 @@ def test_demo_config_generates_a_valid_site(tmp_path, monkeypatch):
     # Column-level lineage and the nav tree are populated end to end.
     assert "model.jaffle_shop.customers.customer_id" in data["columnLineage"]
     assert data["tree"]["byDatabase"]
+
+    # The Health Check is always built: the six manifest-derived DPE dimensions
+    # plus the per-test pass/fail detail (run_results.json lives alongside the
+    # artifacts, so the default path resolves). This is what the SPA renders.
+    health = data["health"]
+    assert health["enabled"] is True
+    assert set(health["dimensions"]) == {
+        "testing",
+        "modeling",
+        "documentation",
+        "structure",
+        "performance",
+        "governance",
+    }
+    assert health["dimensions"]["structure"]["issues"] > 0  # jaffle's prefix-less marts
+    # 29 data tests + 3 unit tests in the sanitized real run.
+    assert health["testResults"]["summary"]["total"] == 32
+    assert health["testResults"]["categories"]["referential"]
+    assert health["testResults"]["categories"]["unit"]

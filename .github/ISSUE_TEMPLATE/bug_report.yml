@@ -1,0 +1,103 @@
+name: 🐞 Bug report
+description: Something in dbdocs misbehaves — a crash, wrong output, or a broken page in the generated site.
+title: "bug: <short summary>"
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! The more concrete the repro, the
+        faster it gets fixed. If you can attach (sanitized) `manifest.json` /
+        `catalog.json` / `run_results.json`, that's the gold standard.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: I searched [existing issues](https://github.com/datnguye/dbt-docs/issues) and this isn't a duplicate.
+          required: true
+        - label: I'm on the latest `dbdocs` release (or I've noted my version below).
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of dbdocs?
+      description: Where does the bug surface?
+      options:
+        - "CLI: dbdocs generate"
+        - "CLI: dbdocs serve"
+        - "CLI: dbdocs deploy"
+        - "Generated site: catalog / node pages"
+        - "Generated site: DAG / ERD graph"
+        - "Generated site: column-level lineage"
+        - "Generated site: Health Check"
+        - "Config (dbdocs.yml)"
+        - "Other / not sure"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, plus the full error/traceback if there is one.
+      placeholder: |
+        Running `dbdocs generate` raises ... / the Health Check page shows ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect to happen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands. A minimal set of artifacts that triggers it is hugely helpful.
+      placeholder: |
+        1. dbt build  (to produce target/*.json)
+        2. dbdocs generate -c dbdocs.yml
+        3. dbdocs serve  → open http://localhost:8080/#/health
+        4. See ...
+    validations:
+      required: true
+
+  - type: input
+    id: dbdocs-version
+    attributes:
+      label: dbdocs version
+      description: "`dbdocs --version`"
+      placeholder: "e.g. 1.4.0"
+    validations:
+      required: true
+
+  - type: input
+    id: dbt-version
+    attributes:
+      label: dbt version & adapter
+      description: The dbt Core version and warehouse adapter that produced the artifacts.
+      placeholder: "e.g. dbt-core 1.9, dbt-snowflake"
+    validations:
+      required: true
+
+  - type: input
+    id: python-os
+    attributes:
+      label: Python version & OS
+      placeholder: "e.g. Python 3.12 on macOS 15"
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Browser/console errors for site bugs, relevant `dbdocs.yml`, screenshots, sanitized artifacts.
+    validations:
+      required: false

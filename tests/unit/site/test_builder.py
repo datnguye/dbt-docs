@@ -59,7 +59,17 @@ def test_build_data_assembles_all_sections(monkeypatch, config, fake_manifest, f
     _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
     data = ReportBuilder(config).build_data()
 
-    assert set(data) == {"metadata", "nodes", "lineage", "columnLineage", "erd", "tree", "readme"}
+    # Health Check is always built (empty-but-enabled when no run_results.json).
+    assert set(data) == {
+        "metadata",
+        "nodes",
+        "lineage",
+        "columnLineage",
+        "erd",
+        "tree",
+        "readme",
+        "health",
+    }
     assert data["metadata"]["adapter_type"] == "snowflake"
     assert data["metadata"]["dialect"] == "snowflake"
     assert data["metadata"]["counts"]["model"] == 2
@@ -327,3 +337,103 @@ def test_generate_dbdocs_data_json_keys_are_sorted(
     parsed = json.loads(raw)
     # Re-dump with sort_keys and compare — if already sorted, they must match.
     assert raw == json.dumps(parsed, separators=(",", ":"), sort_keys=True, default=str)
+
+
+# ---------------------------------------------------------------------------
+# Health Check integration in build_data / generate
+# ---------------------------------------------------------------------------
+
+
+def test_build_data_always_has_health_key(
+    monkeypatch, config, fake_manifest, fake_catalog, run_results_path
+):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    config.run_results = str(run_results_path)
+    data = ReportBuilder(config).build_data()
+    assert "health" in data
+    assert data["health"]["enabled"] is True
+    assert "dimensions" in data["health"]
+    assert data["health"]["testResults"] is not None
+
+
+def test_build_data_health_test_results_counts(
+    monkeypatch, config, fake_manifest, fake_catalog, run_results_path
+):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    config.run_results = str(run_results_path)
+    data = ReportBuilder(config).build_data()
+    s = data["health"]["testResults"]["summary"]
+    # The fixture is a sanitized real jaffle_shop run: 29 data tests + 3 unit
+    # tests = 32 (17 pass, 1 fail, 14 skipped); the model-build entry is filtered
+    # out. fake_manifest lacks these test nodes, so the type is inferred from ids.
+    assert s["pass"] == 17
+    assert s["fail"] == 1
+    assert s["skipped"] == 14
+    assert s["total"] == 32
+
+
+def test_build_data_health_dimensions_present(
+    monkeypatch, config, fake_manifest, fake_catalog, run_results_path
+):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    config.run_results = str(run_results_path)
+    data = ReportBuilder(config).build_data()
+    assert set(data["health"]["dimensions"]) == {
+        "testing",
+        "modeling",
+        "documentation",
+        "structure",
+        "performance",
+        "governance",
+    }
+
+
+def test_build_data_health_fail_soft_on_missing_run_results(
+    monkeypatch, config, fake_manifest, fake_catalog, tmp_path
+):
+    """A missing run_results.json should not crash build_data."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    config.run_results = str(tmp_path / "nonexistent_run_results.json")
+    data = ReportBuilder(config).build_data()
+    assert data["health"]["enabled"] is True
+    # Dimensions still built; test detail skipped with a note.
+    assert "dimensions" in data["health"]
+    assert data["health"]["testResults"] is None
+    assert "note" in data["health"]
+
+
+def test_generate_includes_health_in_payload(
+    monkeypatch, config, fake_manifest, fake_catalog, run_results_path
+):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    config.run_results = str(run_results_path)
+    out = Path(ReportBuilder(config).generate())
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    assert "health" in data
+    assert data["health"]["enabled"] is True
+
+
+def test_resolve_run_results_uses_target_dir_default(
+    monkeypatch, config, fake_manifest, fake_catalog, tmp_path
+):
+    """When run_results is None, default to <target_dir>/run_results.json."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    monkeypatch.chdir(tmp_path)
+    config.run_results = None
+    config.target_dir = str(tmp_path / "target")
+    (tmp_path / "target").mkdir(parents=True, exist_ok=True)
+    # No run_results.json created → fail-soft: dimensions built, test detail noted.
+    data = ReportBuilder(config).build_data()
+    assert data["health"]["testResults"] is None
+
+
+def test_resolve_run_results_escaping_path_uses_default(
+    monkeypatch, config, fake_manifest, fake_catalog, tmp_path
+):
+    """An escaping run_results path is silently replaced by the default."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    monkeypatch.chdir(tmp_path)
+    config.run_results = "../../../etc/passwd"
+    # Should not raise; builds a health section (empty because no file there).
+    data = ReportBuilder(config).build_data()
+    assert "health" in data

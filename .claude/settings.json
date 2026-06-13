@@ -54,5 +54,8 @@
   "statusLine": {
     "type": "command",
     "command": "input=$(cat); in=$(echo \"$input\" | jq -r '.context_window.total_input_tokens // 0'); out=$(echo \"$input\" | jq -r '.context_window.total_output_tokens // 0'); cr=$(echo \"$input\" | jq -r '.context_window.current_usage.cache_read_input_tokens // 0'); cw=$(echo \"$input\" | jq -r '.context_window.current_usage.cache_creation_input_tokens // 0'); cost=$(echo \"$in $out\" | awk '{printf \"%.4f\", ($1/1000000)*3 + ($2/1000000)*15}'); total=$((in + out)); printf \"tok:%s (in:%s out:%s) cache r:%s w:%s | $%s\" \"$total\" \"$in\" \"$out\" \"$cr\" \"$cw\" \"$cost\""
+  },
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": true
   }
 }

@@ -10,10 +10,12 @@
    Exports loadData() → Promise<DATA>. The shape is normalized so the service
    and ui tiers never have to null-check the top-level keys. No build step. */
 
-var EMPTY = { metadata: {}, nodes: {}, lineage: {}, columnLineage: {}, erd: {}, tree: { byDatabase: {} } };
+var EMPTY_HEALTH = { enabled: false, dimensions: {}, testResults: null, note: "" };
+var EMPTY = { metadata: {}, nodes: {}, lineage: {}, columnLineage: {}, erd: {}, tree: { byDatabase: {} }, health: EMPTY_HEALTH };
 
 function normalize(data) {
   var d = data || {};
+  var health = d.health || {};
   return {
     metadata: d.metadata || {},
     nodes: d.nodes || {},
@@ -22,6 +24,12 @@ function normalize(data) {
     erd: d.erd || {},
     tree: (d.tree && d.tree.byDatabase) ? d.tree : { byDatabase: {} },
     readme: d.readme || "",
+    health: {
+      enabled: !!health.enabled,
+      dimensions: health.dimensions || {},
+      testResults: health.testResults || null,
+      note: health.note || "",
+    },
   };
 }
 

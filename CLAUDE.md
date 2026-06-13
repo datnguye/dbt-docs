@@ -159,7 +159,9 @@ of inventing a parallel one.
 - `docs-dev` agent (`memory: project`) — owns `dbdocs/` and `tests/`.
 - `release-manager` agent (`memory: local`) — cuts PyPI releases.
 - Skills: `dbterd-api` (consuming dbt artifacts/ERDs), `spa-site` (the data-dict
-  + generated-SPA contract), `release` (the release procedure).
+  + generated-SPA contract), `release` (the release procedure), `dbdocs-code-review`
+  (the four-dimension review: consistency, Python pluggability, design-pattern
+  alignment, 3-tier bundle JS — via `/dbdocs-code-review`).
 - Hooks: `block-secrets.sh` (PreToolUse, denies secret-file access),
   `post-edit-check.sh` (PostToolUse, ruff-checks edited `.py` files).
 
