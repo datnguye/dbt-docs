@@ -39,15 +39,20 @@ health:
     model_fanout: 3              # > N direct model children is flagged
     too_many_joins: 7            # >= N upstream dependencies is flagged
     chained_view_dependencies: 4 # >= N-deep view/ephemeral chain is flagged
+    documentation_coverage: 100  # < N% of models documented is flagged
 
-  # Disable individual rules by name (none disabled in the demo). The full set:
+  # Disable individual rules by name (none disabled in the demo). The full set
+  # (one-to-one with the dbt-project-evaluator rules):
   disable: []
     # testing:
     #   - test_coverage
     #   - missing_primary_key_tests
+    #   - missing_source_freshness
     # modeling:
     #   - direct_join_to_source
+    #   - downstream_models_dependent_on_source
     #   - duplicate_sources
+    #   - hard_coded_references
     #   - model_fanout
     #   - multiple_sources_joined
     #   - rejoining_of_upstream_concepts
@@ -58,6 +63,7 @@ health:
     #   - unused_sources
     #   - too_many_joins
     # documentation:
+    #   - documentation_coverage
     #   - undocumented_models
     #   - undocumented_sources
     #   - undocumented_source_tables
@@ -65,6 +71,7 @@ health:
     #   - model_naming_conventions
     #   - model_directories
     #   - source_directories
+    #   - test_directories
     # performance:
     #   - chained_view_dependencies
     #   - exposure_parents_materializations

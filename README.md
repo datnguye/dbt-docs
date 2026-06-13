@@ -31,7 +31,7 @@ dbt's built-in docs stop short of telling you *which upstream column fed this do
 - **Fail-soft** — an unparseable model is skipped, not fatal.
 - **Project Health Check** across the six [dbt-project-evaluator](https://dbt-labs.github.io/dbt-project-evaluator/) dimensions.
 - **Versioned deploys** with a built-in version switcher, no plugins.
-- **Catalog navigation + client-side search**, no backend.
+- **Full-text search** across names, columns, descriptions, tags, and SQL at the client-side, no backend.
 - **Dark / light theme.**
 
 ## Install

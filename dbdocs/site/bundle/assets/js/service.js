@@ -6,8 +6,11 @@
 
 var DATA = { metadata: {}, nodes: {}, lineage: {}, columnLineage: {}, erd: {}, tree: { byDatabase: {} }, readme: "", health: { enabled: false } };
 var DOWNSTREAM = null;
+// Cache of the per-node indexed search text, keyed by id, populated by
+// searchDocs() and read by searchSnippet() (both pure, DOM-free). Reset on init().
+var SEARCH_TEXT = null;
 
-export function init(data) { DATA = data; DOWNSTREAM = null; }
+export function init(data) { DATA = data; DOWNSTREAM = null; SEARCH_TEXT = null; }
 
 export function meta() { return DATA.metadata; }
 export function nodes() { return DATA.nodes; }
@@ -17,6 +20,171 @@ export function readme() { return DATA.readme || ""; }
 export function counts() { return DATA.metadata.counts || {}; }
 
 export function shortName(id) { return String(id).split(".").pop(); }
+
+/* Flatten possibly-HTML-bearing text to plain words for the search index: drop
+   tags, decode the entities mdInline emits, collapse whitespace. A node's own
+   `description` is raw markdown (rendered through mdInline at display time), while
+   a column's `description` is pre-escaped HTML carrying <br>; this handles both. */
+function stripHtml(text) {
+  return String(text == null ? "" : text)
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/* Above this node count we drop the SQL body (raw + compiled) from the search
+   index. Indexing every model's SQL doubles that corpus into MiniSearch's
+   in-memory inverted index; on a multi-thousand-model project that's tens of MB
+   resident for a marginal-value field. Name/column/tag/macro coverage stays —
+   only the full-SQL haystack is traded away at scale. */
+var SQL_INDEX_NODE_CAP = 2000;
+
+/* The indexed fields, ordered most→least human-relevant. The snippet builder
+   walks this order to pick which matched field to excerpt, and ui mirrors it for
+   the MiniSearch `fields` list. `label` is the result title (never excerpted as a
+   snippet); the rest are the searchable surface: the human-facing text (name,
+   description, tags) plus the structural surface a reader searches by — column
+   names + descriptions, the warehouse relation, the package, the macros a model
+   calls, and the model SQL (raw + compiled). Each excerptable entry carries a
+   display label (what ui shows above a snippet, mkdocs-material style) so the
+   dropdown can say *why* a result matched; label/name are the title itself and
+   are never excerpted, so their display label is null. */
+export var SEARCH_FIELDS = [
+  { key: "label", label: null },
+  { key: "name", label: null },
+  { key: "columns", label: "Column" },
+  { key: "columnDescriptions", label: "Column docs" },
+  { key: "tags", label: "Tag" },
+  { key: "description", label: "Description" },
+  { key: "relation", label: "Relation" },
+  { key: "package", label: "Package" },
+  { key: "macros", label: "Macro" },
+  { key: "code", label: "SQL" },
+];
+
+/* The documents fed to the full-text index (one per node). DOM-free — ui builds
+   the MiniSearch instance from these. Indexes the fields in SEARCH_FIELDS; the
+   SQL body (`code`) is dropped on large projects (see SQL_INDEX_NODE_CAP) to keep
+   the index small. storeFields (label/resource_type/schema) are what the dropdown
+   renders. The raw per-field text is cached in SEARCH_TEXT so searchSnippet() can
+   excerpt the matched field without a second pass. */
+export function searchDocs() {
+  var N = DATA.nodes;
+  var ids = Object.keys(N);
+  var indexCode = ids.length <= SQL_INDEX_NODE_CAP;
+  SEARCH_TEXT = {};
+  return ids.map(function (id) {
+    var n = N[id];
+    var cols = n.columns || [];
+    var doc = {
+      id: id,
+      label: n.label,
+      name: n.name,
+      resource_type: n.resource_type,
+      schema: n.schema,
+      description: stripHtml(n.description),
+      columns: cols.map(function (c) { return c.name; }).join(" "),
+      columnDescriptions: cols.map(function (c) { return stripHtml(c.description); }).join(" "),
+      tags: (n.tags || []).join(" "),
+      relation: n.relation_name || "",
+      package: n.package || "",
+      macros: (n.macros || []).map(function (m) { return m.name; }).join(" "),
+      code: indexCode ? stripHtml((n.raw_code || "") + " " + (n.compiled_code || "")) : "",
+    };
+    SEARCH_TEXT[id] = doc;
+    return doc;
+  });
+}
+
+/* The MiniSearch `match` object maps each matched document-term to the list of
+   fields it hit. Collapse that to the single most-relevant matched field by
+   walking SEARCH_FIELDS order (skipping `label`/`name` — the title already shows
+   that). Returns the SEARCH_FIELDS entry ({ key, label }), or null when only
+   `label`/`name` matched and the title already explains the hit. */
+function topMatchedField(match) {
+  var hitFields = {};
+  Object.keys(match || {}).forEach(function (term) {
+    (match[term] || []).forEach(function (f) { hitFields[f] = true; });
+  });
+  for (var i = 0; i < SEARCH_FIELDS.length; i++) {
+    var f = SEARCH_FIELDS[i];
+    if (f.key === "label" || f.key === "name") continue;
+    if (hitFields[f.key]) return f;
+  }
+  return null;
+}
+
+/* A windowed excerpt of `text` centered on the first occurrence of any matched
+   term, with ~`pad` chars of context either side and ellipses where clipped.
+   Case-insensitive find; returns the head of the text when no term is located
+   (e.g. a fuzzy/prefix hit whose surface term differs). Pure string work. */
+function excerpt(text, terms, pad) {
+  var hay = String(text || "");
+  if (!hay) return "";
+  var lower = hay.toLowerCase();
+  var at = -1;
+  for (var i = 0; i < terms.length; i++) {
+    var p = lower.indexOf(String(terms[i]).toLowerCase());
+    if (p !== -1 && (at === -1 || p < at)) at = p;
+  }
+  if (at === -1) return hay.length > pad * 2 ? hay.slice(0, pad * 2) + "…" : hay;
+  var start = Math.max(0, at - pad);
+  var end = Math.min(hay.length, at + pad);
+  return (start > 0 ? "…" : "") + hay.slice(start, end).trim() + (end < hay.length ? "…" : "");
+}
+
+/* mkdocs-material-style match context for a search hit: which field matched and
+   a short excerpt of it around the query term(s), so the dropdown explains *why*
+   a result is there (e.g. searching "unique" surfaces the SQL line it lives on).
+   `terms` are the matched document terms (hit.terms from MiniSearch). Returns
+   { field, text } or null when only the title matched. DOM-free — ui highlights
+   the terms and renders. */
+export function searchSnippet(id, match, terms) {
+  var field = topMatchedField(match);
+  if (!field) return null;
+  var doc = (SEARCH_TEXT && SEARCH_TEXT[id]) || {};
+  var text = excerpt(doc[field.key], terms || [], 40);
+  if (!text) return null;
+  return { field: field.label, text: text };
+}
+
+/* Inline search operators (mkdocs-material style) the user types into the box:
+     type:<resource_type>   restrict hits to a resource_type (model/source/…)
+     label:<text> / name:<text>   match only against the name/label fields,
+                                   skipping the SQL/description/column noise
+   Operators combine with the free-text remainder: `type:model orders` finds
+   models whose text matches "orders"; `label:stg` matches names containing
+   "stg". A bare query (no operators) searches everything. */
+var SEARCH_OPERATOR = /(\w+):(\S+)/g;
+var NAME_FIELDS = ["label", "name"];
+
+/* Parse a raw query into MiniSearch inputs. Returns:
+     { text }                the free-text remainder to search (operators stripped)
+     { fields }              restrict matching to these fields, or null for all
+     { filterType }          restrict hits to this resource_type, or null
+     { operators }           the recognized operators (for ui to echo as chips)
+   DOM-free — ui owns running mini.search() and rendering. */
+export function parseSearchQuery(raw) {
+  var fields = null;
+  var filterType = null;
+  var operators = [];
+  var text = String(raw || "").replace(SEARCH_OPERATOR, function (m, key, val) {
+    var k = key.toLowerCase();
+    if (k === "type" || k === "resource_type") {
+      filterType = val.toLowerCase();
+      operators.push({ key: "type", value: filterType });
+      return " ";
+    }
+    if (k === "label" || k === "name") {
+      fields = NAME_FIELDS;
+      operators.push({ key: "label", value: val });
+      return " " + val + " "; // the operator's value is still the text to match
+    }
+    return m; // unrecognized prefix (e.g. a "schema:foo" the index doesn't carry) — leave it as a literal term
+  }).replace(/\s+/g, " ").trim();
+  return { text: text, fields: fields, filterType: filterType, operators: operators };
+}
 
 /* The searchable text for a node in the sidebar tree filter: its table name and
    its fully-qualified database.schema.table, lowercased. Lets the tree filter

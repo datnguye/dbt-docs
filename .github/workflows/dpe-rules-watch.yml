@@ -1,0 +1,65 @@
+name: Watch dbt-project-evaluator rules
+
+# Scrapes the published dbt-project-evaluator rule set weekly and opens a feature
+# issue when DPE ships a rule dbdocs hasn't implemented yet. Health rules track
+# DPE one-to-one, so a new DPE rule is a standing to-do.
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Set up Python
+        run: uv python install 3.12
+
+      - name: Sync environment
+        run: uv sync
+
+      - name: Compare DPE rules against dbdocs
+        id: check
+        run: uv run python .github/scripts/check_dpe_rules.py
+
+      - name: Open / update a feature issue for new rules
+        if: steps.check.outputs.has_missing == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MISSING: ${{ steps.check.outputs.missing }}
+        run: |
+          set -euo pipefail
+          TITLE="feat: implement newly published dbt-project-evaluator rule(s)"
+          BODY=$(cat <<EOF
+          The weekly dbt-project-evaluator rules watcher found rule(s) published by
+          DPE that dbdocs doesn't implement yet. dbdocs health rules track DPE
+          one-to-one, so each of these wants a new rule under the matching
+          \`dbdocs/extract/health/rules/dimensions/\` module (plus a valid
+          \`docs_url\` anchor and a unit test).
+
+          ## Missing rules
+
+          ${MISSING}
+
+          ---
+          _Filed automatically by \`.github/workflows/dpe-rules-watch.yml\`. Closes
+          itself only when re-run after the rules are implemented._
+          EOF
+          )
+          # Dedupe on the stable title: update the open issue if one exists, else create.
+          EXISTING=$(gh issue list --state open --search "in:title \"$TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$EXISTING" ]; then
+            gh issue edit "$EXISTING" --body "$BODY"
+            echo "Updated existing issue #$EXISTING."
+          else
+            gh issue create --title "$TITLE" --body "$BODY" --label enhancement --label triage
+          fi

@@ -14,6 +14,16 @@ DEFAULT_THRESHOLDS = {
     "model_fanout": 3,
     "too_many_joins": 7,
     "chained_view_dependencies": 4,
+    "documentation_coverage": 100,
+}
+
+# DPE anchors that don't equal the rule name kebab-cased. The auto-derived anchor
+# (``rule.replace("_", "-")``) is the DPE heading for most rules; these few have a
+# different published heading, so map the rule name to its real anchor explicitly.
+_RULE_ANCHORS = {
+    "too_many_joins": "models-with-too-many-joins",
+    "staging_dependent_on_marts_or_intermediate": "staging-models-dependent-on-downstream-models",
+    "staging_dependent_on_staging": "staging-models-dependent-on-other-staging-models",
 }
 
 # Materializations that are *not* a physical table (for chained-view detection).
@@ -28,8 +38,13 @@ LAYER_PREFIXES = {
 
 
 def docs_url(category: str, rule: str) -> str:
-    """The DPE docs URL for a rule under *category* (anchor = the rule name)."""
-    return f"{_RULES_BASE}/{category}/#{rule.replace('_', '-')}"
+    """The DPE docs URL for a rule under *category*.
+
+    The anchor is the rule name kebab-cased, except for the few rules whose DPE
+    heading differs (see ``_RULE_ANCHORS``).
+    """
+    anchor = _RULE_ANCHORS.get(rule, rule.replace("_", "-"))
+    return f"{_RULES_BASE}/{category}/#{anchor}"
 
 
 def finding(rule: str, category: str, node: str, node_type: str, message: str) -> dict:

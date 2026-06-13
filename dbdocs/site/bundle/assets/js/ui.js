@@ -651,37 +651,157 @@ function toggleFullscreen(host) {
   }
 }
 
+var SEARCH_RESULT_CAP = 12;
+
 function buildSearch() {
   var input = document.getElementById("search");
   var results = document.getElementById("search-results");
+  var status = document.getElementById("search-status");
   if (typeof MiniSearch === "undefined") return;
-  var NODES = svc.nodes();
-  var docs = Object.keys(NODES).map(function (id) {
-    var n = NODES[id];
-    return { id: id, label: n.label, resource_type: n.resource_type, schema: n.schema,
-      description: n.description, columns: (n.columns || []).map(function (c) { return c.name; }).join(" ") };
+  var docs = svc.searchDocs();
+  var mini = new MiniSearch({
+    fields: svc.SEARCH_FIELDS.map(function (f) { return f.key; }),
+    storeFields: ["label", "resource_type", "schema"],
+    // Names/columns/tags expand fuzzily + by prefix so a half-typed model name
+    // still hits. The bulk text fields (description, column docs, SQL) match only
+    // on whole terms and at a low weight — otherwise a generic SQL keyword like
+    // "unique" fuzzy-floods nearly every model. boost ranks name/column hits well
+    // above an incidental SQL-body hit so the title results stay on top.
+    searchOptions: {
+      prefix: true,
+      fuzzy: 0.2,
+      boost: { label: 6, name: 6, columns: 3, tags: 2, relation: 2, description: 1, columnDescriptions: 1, code: 0.4 },
+    },
   });
-  var mini = new MiniSearch({ fields: ["label", "description", "columns"], storeFields: ["label", "resource_type", "schema"], searchOptions: { prefix: true, fuzzy: 0.2, boost: { label: 3 } } });
   mini.addAll(docs);
+
+  // Build the matched-field snippet (mkdocs-material style): a label for the
+  // field that matched + the excerpt, with the matched terms wrapped in <mark>.
+  // Highlighting is done by splitting on the matched terms and building text +
+  // <mark> nodes (no innerHTML) so user-derived text can never inject markup.
+  function highlightNodes(text, terms) {
+    var safe = (terms || []).map(function (t) { return String(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }).filter(Boolean);
+    if (!safe.length) return [text];
+    var re = new RegExp("(" + safe.join("|") + ")", "ig");
+    return String(text).split(re).map(function (piece, i) {
+      // split() with a capturing group puts the matched delimiters at odd indices.
+      return i % 2 === 1 ? el("mark", null, [piece]) : piece;
+    });
+  }
+
+  function snippetNode(h) {
+    var snip = svc.searchSnippet(h.id, h.match, h.terms);
+    if (!snip) return null;
+    return el("span", { class: "sr-snippet" }, [
+      el("span", { class: "sr-snippet-field" }, [snip.field]),
+      el("span", { class: "sr-snippet-text" }, highlightNodes(snip.text, h.terms)),
+    ]);
+  }
+
+  // Roving active-descendant state for keyboard nav: index into the rendered
+  // option rows, or -1 for "input itself focused, nothing selected".
+  var activeIndex = -1;
+
+  function setExpanded(open) {
+    results.hidden = !open;
+    input.setAttribute("aria-expanded", open ? "true" : "false");
+    if (!open) {
+      activeIndex = -1;
+      input.removeAttribute("aria-activedescendant");
+      status.textContent = "";
+    }
+  }
+
+  function optionRows() { return results.querySelectorAll('[role="option"]'); }
+
+  // Move the roving selection by `delta` (wrapping), reflect it as the .active
+  // class + aria-selected, and point the input's aria-activedescendant at it so
+  // a screen reader announces the row without moving DOM focus off the input.
+  function moveActive(delta) {
+    var rows = optionRows();
+    if (!rows.length) return;
+    if (activeIndex >= 0 && rows[activeIndex]) rows[activeIndex].setAttribute("aria-selected", "false");
+    activeIndex = (activeIndex + delta + rows.length) % rows.length;
+    rows.forEach(function (r, i) { r.classList.toggle("active", i === activeIndex); });
+    var active = rows[activeIndex];
+    active.setAttribute("aria-selected", "true");
+    input.setAttribute("aria-activedescendant", active.id);
+    active.scrollIntoView({ block: "nearest" });
+  }
 
   function render(hits) {
     clear(results);
-    if (!hits.length) { results.hidden = true; return; }
-    hits.slice(0, 12).forEach(function (h) {
-      results.appendChild(el("a", { href: "#/node/" + encodeURIComponent(h.id), onclick: function () { results.hidden = true; input.value = ""; setSearchOpen(false); } }, [
-        el("span", { class: "dot " + h.resource_type }), " " + h.label,
-        el("span", { class: "sr-meta" }, ["  " + h.resource_type + " · " + h.schema]),
-      ]));
+    activeIndex = -1;
+    input.removeAttribute("aria-activedescendant");
+    if (!hits.length) {
+      // A non-empty query with no hits gets an explicit cue, mirrored into the
+      // #search-status live region for screen readers.
+      var noMatches = "No matches.";
+      results.appendChild(el("div", { class: "sr-empty" }, [noMatches]));
+      status.textContent = noMatches;
+      setExpanded(true);
+      return;
+    }
+    var shown = Math.min(hits.length, SEARCH_RESULT_CAP);
+    status.textContent = shown === 1 ? "1 result." : shown + " results.";
+    hits.slice(0, SEARCH_RESULT_CAP).forEach(function (h, i) {
+      var children = [
+        el("span", { class: "sr-title" }, [
+          el("span", { class: "dot " + h.resource_type }), " " + h.label,
+          el("span", { class: "sr-meta" }, ["  " + h.resource_type + " · " + h.schema]),
+        ]),
+      ];
+      var snip = snippetNode(h);
+      if (snip) children.push(snip);
+      results.appendChild(el("a", {
+        id: "search-opt-" + i,
+        role: "option",
+        "aria-selected": "false",
+        href: "#/node/" + encodeURIComponent(h.id),
+        onclick: function () { closeSearch(); },
+      }, children));
     });
-    results.hidden = false;
+    setExpanded(true);
+  }
+
+  function closeSearch() { setExpanded(false); input.value = ""; setSearchOpen(false); }
+  // Map service's parsed operators to MiniSearch's field restriction + a
+  // resource_type filter. A bare `type:` (no free text) scans for the first
+  // SEARCH_RESULT_CAP nodes of that type — O(cap), not O(N) on a huge project.
+  function runQuery(raw) {
+    var p = svc.parseSearchQuery(raw);
+    if (!p.text) {
+      if (!p.filterType) return [];
+      var picked = [];
+      for (var i = 0; i < docs.length && picked.length < SEARCH_RESULT_CAP; i++) {
+        if (docs[i].resource_type === p.filterType) picked.push(docs[i]);
+      }
+      return picked;
+    }
+    var opts = {};
+    if (p.fields) opts.fields = p.fields;
+    if (p.filterType) opts.filter = function (h) { return h.resource_type === p.filterType; };
+    return mini.search(p.text, opts);
   }
   input.addEventListener("input", function () {
     var q = input.value.trim();
-    if (!q) { results.hidden = true; return; }
-    render(mini.search(q));
+    if (!q) { setExpanded(false); return; }
+    render(runQuery(q));
   });
-  input.addEventListener("focus", function () { if (input.value.trim()) render(mini.search(input.value.trim())); });
-  document.addEventListener("click", function (e) { if (!results.contains(e.target) && e.target !== input) results.hidden = true; });
+  input.addEventListener("focus", function () { if (input.value.trim()) render(runQuery(input.value.trim())); });
+  // Keyboard nav: ↑/↓ rove the options, Enter follows the active one (or the
+  // first when none is roved), Escape closes. Other keys fall through to typing.
+  input.addEventListener("keydown", function (e) {
+    if (results.hidden) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); moveActive(1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); moveActive(-1); }
+    else if (e.key === "Enter") {
+      var rows = optionRows();
+      var target = rows[activeIndex >= 0 ? activeIndex : 0];
+      if (target) { e.preventDefault(); location.hash = target.getAttribute("href"); closeSearch(); }
+    } else if (e.key === "Escape") { setExpanded(false); }
+  });
+  document.addEventListener("click", function (e) { if (!results.contains(e.target) && e.target !== input) setExpanded(false); });
 }
 
 function initTheme() {

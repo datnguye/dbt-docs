@@ -11,6 +11,7 @@ from types import SimpleNamespace
 import pytest
 
 from dbdocs.extract.health import rules as R
+from dbdocs.extract.health.dimensions import ManifestGraph
 
 # ---------------------------------------------------------------------------
 # A minimal graph stub matching ManifestGraph's rule-facing surface.
@@ -25,11 +26,19 @@ class FakeGraph:
     """Hand-built graph: nodes + explicit parent edges + per-node attributes."""
 
     def __init__(
-        self, models=None, sources=None, exposures=None, edges=None, attrs=None, thresholds=None
+        self,
+        models=None,
+        sources=None,
+        exposures=None,
+        edges=None,
+        attrs=None,
+        thresholds=None,
+        singular_tests=None,
     ):
         self.models = models or []
         self.sources = sources or []
         self.exposures = exposures or []
+        self.singular_tests = singular_tests or []
         self._edges = edges or {}  # child_uid -> [parent_uid, ...]
         self._attrs = attrs or {}  # uid -> {layer, materialization, access, contract, tests}
         self._thresholds = {**R.DEFAULT_THRESHOLDS, **(thresholds or {})}
@@ -69,6 +78,9 @@ class FakeGraph:
     def non_physical_chain_depth(self, uid):
         return self._attrs.get(uid, {}).get("chain_depth", 0)
 
+    # Delegates to the real staticmethod so the freshness logic has one home.
+    has_source_freshness = staticmethod(ManifestGraph.has_source_freshness)
+
 
 def _rules(findings):
     return [f["rule"] for f in findings]
@@ -93,6 +105,62 @@ def test_direct_join_to_source_ignores_pure_model_parents():
     m = _node("model.p.mart")
     g = FakeGraph(models=[m], edges={"model.p.mart": ["model.p.a", "model.p.b"]})
     assert R.direct_join_to_source(g) == []
+
+
+def test_downstream_models_dependent_on_source_flags_non_staging():
+    m = _node("model.p.mart")
+    g = FakeGraph(
+        models=[m],
+        edges={"model.p.mart": ["source.p.s.raw"]},
+        attrs={"model.p.mart": {"layer": "marts"}},
+    )
+    assert _nodes(R.downstream_models_dependent_on_source(g)) == ["model.p.mart"]
+
+
+def test_downstream_models_dependent_on_source_ok_for_staging():
+    m = _node("model.p.stg")
+    g = FakeGraph(
+        models=[m],
+        edges={"model.p.stg": ["source.p.s.raw"]},
+        attrs={"model.p.stg": {"layer": "staging"}},
+    )
+    assert R.downstream_models_dependent_on_source(g) == []
+
+
+def test_hard_coded_references_flags_literal_relation():
+    m = _node("model.p.bad", raw_code="select * from raw.public.orders")
+    g = FakeGraph(models=[m])
+    findings = R.hard_coded_references(g)
+    assert _nodes(findings) == ["model.p.bad"]
+    assert "raw.public.orders" in findings[0]["message"]
+
+
+def test_hard_coded_references_ok_with_ref_and_source():
+    m = _node(
+        "model.p.good",
+        raw_code="select * from {{ ref('stg_orders') }} join {{ source('ecom', 'raw') }}",
+    )
+    g = FakeGraph(models=[m])
+    assert R.hard_coded_references(g) == []
+
+
+def test_hard_coded_references_fail_soft_on_unparseable_sql():
+    m = _node("model.p.broken", raw_code="select * from (select")
+    g = FakeGraph(models=[m])
+    assert R.hard_coded_references(g) == []
+
+
+def test_hard_coded_references_ignores_non_query_statement():
+    # A non-SELECT statement (DDL) has no scope to analyze — yields nothing.
+    m = _node("model.p.ddl", raw_code="create table x (a int)")
+    g = FakeGraph(models=[m])
+    assert R.hard_coded_references(g) == []
+
+
+def test_hard_coded_references_empty_sql_is_clean():
+    m = _node("model.p.empty", raw_code="")
+    g = FakeGraph(models=[m])
+    assert R.hard_coded_references(g) == []
 
 
 def test_duplicate_sources_flags_same_relation():
@@ -279,6 +347,45 @@ def test_test_coverage_ok_with_any_test():
     assert R.test_coverage(g) == []
 
 
+def _source(uid, loaded_at_field=None, warn_count=None, error_count=None, **kw):
+    freshness = SimpleNamespace(
+        warn_after=SimpleNamespace(count=warn_count),
+        error_after=SimpleNamespace(count=error_count),
+    )
+    return _node(uid, loaded_at_field=loaded_at_field, freshness=freshness, **kw)
+
+
+def test_missing_source_freshness_flags_unconfigured():
+    s = _source("source.p.s.raw", source_name="s", name="raw")
+    g = FakeGraph(sources=[s])
+    findings = R.missing_source_freshness(g)
+    assert _nodes(findings) == ["source.p.s.raw"]
+    assert "s.raw" in findings[0]["message"]
+
+
+def test_missing_source_freshness_ok_when_configured():
+    s = _source("source.p.s.raw", loaded_at_field="loaded_at", warn_count=12)
+    g = FakeGraph(sources=[s])
+    assert R.missing_source_freshness(g) == []
+
+
+def test_missing_source_freshness_needs_both_field_and_threshold():
+    # A loaded_at_field with no warn/error count is not a real freshness check.
+    s = _source("source.p.s.raw", loaded_at_field="loaded_at")
+    g = FakeGraph(sources=[s])
+    assert _nodes(R.missing_source_freshness(g)) == ["source.p.s.raw"]
+
+
+def test_has_source_freshness_error_after_counts():
+    s = _source("source.p.s.raw", loaded_at_field="loaded_at", error_count=24)
+    assert ManifestGraph.has_source_freshness(s) is True
+
+
+def test_has_source_freshness_false_when_no_freshness_block():
+    s = _node("source.p.s.raw", loaded_at_field="loaded_at", freshness=None)
+    assert ManifestGraph.has_source_freshness(s) is False
+
+
 # ---------------------------------------------------------------------------
 # Documentation
 # ---------------------------------------------------------------------------
@@ -289,6 +396,25 @@ def test_undocumented_models():
     b = _node("model.p.b", description="documented")
     g = FakeGraph(models=[a, b])
     assert _nodes(R.undocumented_models(g)) == ["model.p.a"]
+
+
+def test_documentation_coverage_flags_below_target():
+    a = _node("model.p.a", description="doc")
+    b = _node("model.p.b", description="")
+    g = FakeGraph(models=[a, b])  # 50% documented, default target 100
+    findings = R.documentation_coverage(g)
+    assert _nodes(findings) == ["project"]
+    assert "50.0%" in findings[0]["message"]
+
+
+def test_documentation_coverage_ok_at_threshold():
+    a = _node("model.p.a", description="doc")
+    g = FakeGraph(models=[a], thresholds={"documentation_coverage": 50})
+    assert R.documentation_coverage(g) == []
+
+
+def test_documentation_coverage_empty_project_is_clean():
+    assert R.documentation_coverage(FakeGraph(models=[])) == []
 
 
 def test_undocumented_sources_dedupes_by_source_name():
@@ -356,6 +482,18 @@ def test_source_directories_ok_in_staging():
     s = _node("source.p.s.raw", path="models/staging/__sources.yml")
     g = FakeGraph(sources=[s])
     assert R.source_directories(g) == []
+
+
+def test_test_directories_flags_test_outside_tests_dir():
+    t = _node("test.p.assert_x", original_file_path="models/marts/assert_x.sql")
+    g = FakeGraph(singular_tests=[t])
+    assert _nodes(R.test_directories(g)) == ["test.p.assert_x"]
+
+
+def test_test_directories_ok_under_tests_dir():
+    t = _node("test.p.assert_x", original_file_path="tests/assert_x.sql")
+    g = FakeGraph(singular_tests=[t])
+    assert R.test_directories(g) == []
 
 
 # ---------------------------------------------------------------------------

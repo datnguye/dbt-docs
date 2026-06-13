@@ -18,10 +18,11 @@ nav:
     - ⭐ Live Demo ⭐ ↗️: '/latest/demo/latest/" target="_blank'
     - User Guide:
       - Quickstart: nav/guide/quickstart.md
-      - Configuration: nav/guide/configuration.md
-      - CLI Reference: nav/guide/cli-references.md
       - How It Works: nav/guide/how-it-works.md
+      - Configuration: nav/guide/configuration.md
+      - Full-text Search: nav/guide/search.md
       - Versioned Deploy: nav/guide/versioned-deploy.md
+      - CLI Reference: nav/guide/cli-references.md
     - Development 🛠️:
       - Contributing Guide ❤️: nav/development/contributing-guide.md
     - License 🔑: license.md

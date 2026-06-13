@@ -12,6 +12,7 @@ from typing import Any
 
 from dbdocs.core.log import logger
 from dbdocs.extract.health.rules.dimensions.documentation import (
+    documentation_coverage,
     undocumented_models,
     undocumented_source_tables,
     undocumented_sources,
@@ -23,7 +24,9 @@ from dbdocs.extract.health.rules.dimensions.governance import (
 )
 from dbdocs.extract.health.rules.dimensions.modeling import (
     direct_join_to_source,
+    downstream_models_dependent_on_source,
     duplicate_sources,
+    hard_coded_references,
     model_fanout,
     multiple_sources_joined,
     rejoining_of_upstream_concepts,
@@ -42,8 +45,13 @@ from dbdocs.extract.health.rules.dimensions.structure import (
     model_directories,
     model_naming_conventions,
     source_directories,
+    test_directories,
 )
-from dbdocs.extract.health.rules.dimensions.testing import missing_primary_key_tests, test_coverage
+from dbdocs.extract.health.rules.dimensions.testing import (
+    missing_primary_key_tests,
+    missing_source_freshness,
+    test_coverage,
+)
 
 # The built-in rules grouped by dimension, in DPE's published order. These are the
 # *built-ins*. ``DIMENSION_RULES`` (below) starts as a deep copy and is what
@@ -53,10 +61,13 @@ _BUILTIN_RULES: "dict[str, tuple]" = {
     "testing": (
         test_coverage,
         missing_primary_key_tests,
+        missing_source_freshness,
     ),
     "modeling": (
         direct_join_to_source,
+        downstream_models_dependent_on_source,
         duplicate_sources,
+        hard_coded_references,
         model_fanout,
         multiple_sources_joined,
         rejoining_of_upstream_concepts,
@@ -68,6 +79,7 @@ _BUILTIN_RULES: "dict[str, tuple]" = {
         too_many_joins,
     ),
     "documentation": (
+        documentation_coverage,
         undocumented_models,
         undocumented_sources,
         undocumented_source_tables,
@@ -76,6 +88,7 @@ _BUILTIN_RULES: "dict[str, tuple]" = {
         model_naming_conventions,
         model_directories,
         source_directories,
+        test_directories,
     ),
     "performance": (
         chained_view_dependencies,

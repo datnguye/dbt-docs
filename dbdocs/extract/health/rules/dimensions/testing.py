@@ -49,3 +49,22 @@ def missing_primary_key_tests(graph: "ManifestGraph") -> "list[dict]":
                 )
             )
     return out
+
+
+def missing_source_freshness(graph: "ManifestGraph") -> "list[dict]":
+    """Sources with no freshness check (no ``loaded_at_field`` + warn/error threshold)."""
+    out = []
+    for src in graph.sources:
+        if not graph.has_source_freshness(src):
+            name = str(getattr(src, "source_name", "") or "") or src.unique_id
+            table = str(getattr(src, "name", "") or "")
+            out.append(
+                finding(
+                    "missing_source_freshness",
+                    "testing",
+                    src.unique_id,
+                    "source",
+                    f"Source '{name}.{table}' has no freshness check configured.",
+                )
+            )
+    return out
