@@ -30,6 +30,11 @@ the catalog, the lineage DAG, the ERD, and column-level lineage.
 </a>
 <p align="center"><em>Per-model detail — every column with its type, description, and <strong>upstream column-level lineage</strong> traced from compiled SQL.</em></p>
 
+<a href="/latest/demo/latest/#/health" target="_blank">
+  <img src="assets/img/demo-health.png" alt="The dbdocs Health Check page scoring six dbt-project-evaluator dimensions" loading="lazy">
+</a>
+<p align="center"><em>Project <strong>Health Check</strong> — a scorecard across the six <a href="https://github.com/dbt-labs/dbt-project-evaluator">dbt-project-evaluator</a> dimensions, derived straight from your dbt artifacts.</em></p>
+
 ---
 
 ## What you get

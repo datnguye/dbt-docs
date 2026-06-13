@@ -15,9 +15,9 @@
 
 Turn your dbt artifacts into a self-contained docs site: a browsable catalog, an entity-relationship diagram, an interactive lineage DAG, and **column-level lineage** traced from your compiled SQL — all in one `dbdocs generate`. Serve it with `dbdocs serve`, or deploy versioned builds anywhere a static host will take them.
 
-| Catalog | Model page | Lineage DAG |
-|---|---|---|
-| ![catalog](docs/assets/img/demo-catalog.png) | ![model page](docs/assets/img/demo-model-page.png) | ![dag](docs/assets/img/demo-model-dag.png) |
+| Catalog | Model page | Lineage DAG | Health Check |
+|---|---|---|---|
+| ![catalog](docs/assets/img/demo-catalog.png) | ![model page](docs/assets/img/demo-model-page.png) | ![dag](docs/assets/img/demo-model-dag.png) | ![health check](docs/assets/img/demo-health.png) |
 
 ## Why dbdocs?
 
