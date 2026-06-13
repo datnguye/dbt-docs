@@ -129,10 +129,9 @@ export function repoUrl(href, kind) {
 }
 
 /* Health Check accessors. DOM-free — pure data derivations.
-   Shape: { enabled, dimensions:{<dim>:{issues,checked,findings}}, testResults, note } */
-export function health() { return DATA.health || { enabled: false }; }
+   Shape: { enabled, dimensions:{<dim>:{issues,checked,findings}}, testResults, note }
 
-/* The six dimensions in display order (testing first), each with its issue count
+   The six dimensions in display order (testing first), each with its issue count
    and a derived score = 1 - issues/checked (clamped). Returns [] when absent. */
 var HEALTH_DIM_ORDER = ["testing", "documentation", "modeling", "structure", "performance", "governance"];
 export function healthDimensions() {

@@ -104,6 +104,11 @@ function focusColumn(column) {
   var row = app.querySelector('tr[data-col="' + (window.CSS && CSS.escape ? CSS.escape(String(column).toLowerCase()) : String(column).toLowerCase()) + '"]');
   if (!row) return;
   row.scrollIntoView({ block: "center" });
+  // Move keyboard focus to the row so the deep link lands a keyboard user on the
+  // target, not stranded on the chip they followed. tabindex=-1 = programmatic
+  // focus only (not in the tab order).
+  row.setAttribute("tabindex", "-1");
+  row.focus({ preventScroll: true });
   row.classList.add("col-flash");
   setTimeout(function () { row.classList.remove("col-flash"); }, 1600);
 }
@@ -322,10 +327,16 @@ function renderHealth(focusDim) {
     app.appendChild(healthDimensionSection(d, focusDim));
   });
 
-  // Scroll the deep-linked section into view (after layout settles).
+  // Scroll the deep-linked section into view (after layout settles) and move
+  // keyboard focus to its <summary> — the operable part of the <details> — so a
+  // keyboard user lands on the section, not on the scorecard chip they followed.
   if (focusDim) {
     var target = document.getElementById("health-" + focusDim);
-    if (target) setTimeout(function () { target.scrollIntoView({ behavior: "smooth", block: "start" }); }, 0);
+    if (target) setTimeout(function () {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      var head = target.querySelector("summary");
+      if (head) head.focus({ preventScroll: true });
+    }, 0);
   }
 }
 
