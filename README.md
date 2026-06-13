@@ -23,15 +23,15 @@ Turn your dbt artifacts into a self-contained docs site: a browsable catalog, an
 
 dbt's built-in docs stop short of telling you *which upstream column fed this downstream column*, *which tables relate to each other*, or *what changed between builds*. dbdocs fills those gaps — no documentation framework or separate ERD tool to install.
 
-- **ERD + column-level lineage together.** Table relationships via [dbterd](https://github.com/datnguye/dbterd), plus column lineage traced from compiled SQL by [sqlglot](https://github.com/tobymao/sqlglot). Most tools give you one or the other.
-- **Column impact analysis.** Select a column to see its downstream dependents project-wide — know what a schema change breaks before you run it.
-- **Deep-link URLs.** Every focused node, column, and filtered DAG view has a shareable URL.
-- **Any sqlglot dialect.** Auto-detected from your manifest's `adapter_type` (Snowflake, BigQuery, Redshift, DuckDB, Postgres, Databricks/Spark, Trino, …); override with `dialect:` in `dbdocs.yml`.
-- **Scales without freezing.** Lineage parsing fans out across CPU cores above 500 models; the DAG is windowed by React Flow; the payload ships as an external gzip so `index.html` stays tiny.
-- **Fail-soft.** An unparseable model is skipped and logged, never sinking the run.
-- **Project Health Check.** A scorecard across the six [dbt-project-evaluator](https://dbt-labs.github.io/dbt-project-evaluator/) dimensions, computed from `manifest.json` — no extra package, no warehouse. Add a `run_results.json` (any `dbt build`/`dbt test`) and each test also shows as a pass/fail finding. dbdocs only reads artifacts; it never runs dbt.
-- **Versioned deploys, no plugins.** `dbdocs deploy --version v1.2 --alias latest` writes a plain directory tree + `versions.json`, and the SPA renders a version dropdown. No mike, no external tooling.
-- **Catalog navigation + client-side search.** Grouped by database and schema; full-text search, no backend.
+- **ERD + column-level lineage** — table relationships ([dbterd](https://github.com/datnguye/dbterd)) and column lineage from compiled SQL ([sqlglot](https://github.com/tobymao/sqlglot)).
+- **Column impact analysis** — downstream dependents for any column.
+- **Deep-link URLs** for every node, column, and DAG view.
+- **Any sqlglot dialect**, auto-detected from your manifest.
+- **Scales to 1 000s of models** without freezing the browser.
+- **Fail-soft** — an unparseable model is skipped, not fatal.
+- **Project Health Check** across the six [dbt-project-evaluator](https://dbt-labs.github.io/dbt-project-evaluator/) dimensions.
+- **Versioned deploys** with a built-in version switcher, no plugins.
+- **Catalog navigation + client-side search**, no backend.
 - **Dark / light theme.**
 
 ## Install
