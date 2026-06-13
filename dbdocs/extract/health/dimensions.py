@@ -50,6 +50,13 @@ class ManifestGraph:
         self.models = [n for uid, n in self._nodes.items() if uid.startswith("model.")]
         self.sources = list(self._sources.values())
         self.exposures = list(self._exposures.values())
+        # Singular tests are custom-SQL test nodes (no test_metadata); generic
+        # tests (unique/not_null/…) carry test_metadata and are excluded.
+        self.singular_tests = [
+            n
+            for uid, n in self._nodes.items()
+            if uid.startswith("test.") and getattr(n, "test_metadata", None) is None
+        ]
 
         # Rule thresholds: per-run overrides layered over the DPE defaults.
         self._thresholds = {**DEFAULT_THRESHOLDS, **(thresholds or {})}
@@ -146,6 +153,21 @@ class ManifestGraph:
         access = getattr(config, "access", None) if config else None
         access = access or getattr(model, "access", None)
         return str(access or "protected").lower()
+
+    @staticmethod
+    def has_source_freshness(source: Any) -> bool:
+        """Whether a source has a freshness check: a ``loaded_at_field`` plus a
+        ``warn_after``/``error_after`` threshold count."""
+        if not str(getattr(source, "loaded_at_field", "") or "").strip():
+            return False
+        freshness = getattr(source, "freshness", None)
+        if freshness is None:
+            return False
+        for bound in ("warn_after", "error_after"):
+            period = getattr(freshness, bound, None)
+            if period is not None and getattr(period, "count", None) is not None:
+                return True
+        return False
 
     @staticmethod
     def contract_enforced(model: Any) -> bool:

@@ -4,13 +4,28 @@ Each rule is ``(graph) -> list[dict]``; see ``dbdocs.extract.health.rules``
 for the shared finding shape and the registry that assembles these.
 """
 
+import re
 from typing import Any
+
+import sqlglot
+from sqlglot import exp
+from sqlglot.errors import SqlglotError
+from sqlglot.optimizer.scope import build_scope
 
 from dbdocs.extract.health.rules.base import finding
 
 # ``ManifestGraph`` annotations are strings (forward ref) to avoid a circular
 # import (rules ← graph ← analyzer); resolved lazily by the type checker only.
 ManifestGraph = Any
+
+# A ``{{ ref(...) }}`` / ``{{ source(...) }}`` call is rewritten to a uniquely
+# numbered sentinel table before parsing (``__dbt_ref_0__``, ``__dbt_ref_1__``, …)
+# — unique so sqlglot's scope analysis doesn't choke on a repeated alias — so any
+# *other* real table left in the SQL is a hard-coded relation. Any remaining
+# ``{{ ... }}`` macro is blanked so it doesn't masquerade as a table.
+_REF_SENTINEL_PREFIX = "__dbt_ref_"
+_REF_OR_SOURCE = re.compile(r"{{[-\s]*(?:ref|source)\s*\(.*?\)[-\s]*}}", re.IGNORECASE | re.DOTALL)
+_OTHER_JINJA = re.compile(r"{[{%].*?[%}]}", re.DOTALL)
 
 
 def direct_join_to_source(graph: "ManifestGraph") -> "list[dict]":
@@ -116,6 +131,87 @@ def rejoining_of_upstream_concepts(graph: "ManifestGraph") -> "list[dict]":
                     b.unique_id,
                     "model",
                     "Its only child also depends on a shared upstream — a redundant DAG loop.",
+                )
+            )
+    return out
+
+
+def downstream_models_dependent_on_source(graph: "ManifestGraph") -> "list[dict]":
+    """Non-staging models that ref a source directly (only staging should touch sources)."""
+    out = []
+    for model in graph.models:
+        if graph.layer(model) == "staging":
+            continue
+        if any(p.startswith("source.") for p in graph.parents(model.unique_id)):
+            out.append(
+                finding(
+                    "downstream_models_dependent_on_source",
+                    "modeling",
+                    model.unique_id,
+                    "model",
+                    "A non-staging model selects from a source — route it through a staging model.",
+                )
+            )
+    return out
+
+
+def _number_refs(raw_code: str) -> str:
+    """Replace each ref()/source() jinja call with a uniquely numbered sentinel."""
+    out = []
+    last = 0
+    for index, match in enumerate(_REF_OR_SOURCE.finditer(raw_code)):
+        out.append(raw_code[last : match.start()])
+        out.append(f"{_REF_SENTINEL_PREFIX}{index}__")
+        last = match.end()
+    out.append(raw_code[last:])
+    return "".join(out)
+
+
+def _hard_coded_relations(raw_code: str) -> "list[str]":
+    """Real table names a model's raw SQL selects from outside ref()/source().
+
+    dbt references are jinja (``{{ ref(...) }}`` / ``{{ source(...) }}``), so they
+    are rewritten to uniquely numbered sentinel tables before parsing (so sqlglot's
+    scope analysis doesn't choke on a repeated alias); any other real table its
+    scope analysis finds is a hard-coded relation. CTEs are excluded by walking
+    ``scope.selected_sources`` rather than every ``exp.Table``. Unparseable SQL
+    yields nothing (fail-soft — one model never sinks the pass).
+    """
+    sql = _number_refs(raw_code)
+    sql = _OTHER_JINJA.sub(" ", sql)
+    if not sql.strip():
+        return []
+    try:
+        # parse_one returns a node or raises for non-empty input (empty is guarded
+        # above); build_scope returns None for a non-query statement (DDL/SET).
+        root = build_scope(sqlglot.parse_one(sql))
+        if root is None:
+            return []
+        relations = [
+            source.sql()
+            for scope in root.traverse()
+            for _alias, (_node, source) in scope.selected_sources.items()
+            if isinstance(source, exp.Table) and not source.name.startswith(_REF_SENTINEL_PREFIX)
+        ]
+    except SqlglotError:  # OptimizeError (e.g. duplicate alias) is a SqlglotError subclass.
+        return []
+    return relations
+
+
+def hard_coded_references(graph: "ManifestGraph") -> "list[dict]":
+    """Models whose SQL selects from a literal relation instead of ref()/source()."""
+    out = []
+    for model in graph.models:
+        relations = _hard_coded_relations(str(getattr(model, "raw_code", "") or ""))
+        if relations:
+            shown = ", ".join(sorted(set(relations)))
+            out.append(
+                finding(
+                    "hard_coded_references",
+                    "modeling",
+                    model.unique_id,
+                    "model",
+                    f"Hard-coded relation(s) {shown} — replace with ref()/source().",
                 )
             )
     return out

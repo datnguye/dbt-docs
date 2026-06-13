@@ -82,18 +82,23 @@ default_version: latest
 #     model_fanout: 3              # > N direct model children is flagged
 #     too_many_joins: 7            # >= N upstream dependencies is flagged
 #     chained_view_dependencies: 4 # >= N-deep view/ephemeral chain is flagged
+#     documentation_coverage: 100  # < N% of models documented is flagged
 #
-#   # Disable individual rules by name. The full built-in set:
-#   #   testing:       test_coverage, missing_primary_key_tests
-#   #   modeling:      direct_join_to_source, duplicate_sources, model_fanout,
-#   #                  multiple_sources_joined, rejoining_of_upstream_concepts,
+#   # Disable individual rules by name. The full built-in set (one-to-one with
+#   # the dbt-project-evaluator rules):
+#   #   testing:       test_coverage, missing_primary_key_tests,
+#   #                  missing_source_freshness
+#   #   modeling:      direct_join_to_source,
+#   #                  downstream_models_dependent_on_source, duplicate_sources,
+#   #                  hard_coded_references, model_fanout, multiple_sources_joined,
+#   #                  rejoining_of_upstream_concepts,
 #   #                  root_models, source_fanout, staging_dependent_on_staging,
 #   #                  staging_dependent_on_marts_or_intermediate, unused_sources,
 #   #                  too_many_joins
-#   #   documentation: undocumented_models, undocumented_sources,
-#   #                  undocumented_source_tables
+#   #   documentation: documentation_coverage, undocumented_models,
+#   #                  undocumented_sources, undocumented_source_tables
 #   #   structure:     model_naming_conventions, model_directories,
-#   #                  source_directories
+#   #                  source_directories, test_directories
 #   #   performance:   chained_view_dependencies, exposure_parents_materializations
 #   #   governance:    public_models_without_contracts, undocumented_public_models,
 #   #                  exposures_dependent_on_private_models

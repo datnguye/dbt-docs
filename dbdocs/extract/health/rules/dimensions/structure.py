@@ -57,6 +57,24 @@ def model_directories(graph: "ManifestGraph") -> "list[dict]":
     return out
 
 
+def test_directories(graph: "ManifestGraph") -> "list[dict]":
+    """Singular (custom SQL) tests not stored under a ``tests/`` directory."""
+    out = []
+    for test in graph.singular_tests:
+        path = str(getattr(test, "original_file_path", "") or getattr(test, "path", "") or "")
+        if "tests" not in path.split("/"):
+            out.append(
+                finding(
+                    "test_directories",
+                    "structure",
+                    test.unique_id,
+                    "test",
+                    "Singular test is not under a 'tests/' directory.",
+                )
+            )
+    return out
+
+
 def source_directories(graph: "ManifestGraph") -> "list[dict]":
     """Source YAML not under a staging/ directory."""
     out = []

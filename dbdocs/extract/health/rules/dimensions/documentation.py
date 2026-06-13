@@ -54,6 +54,36 @@ def undocumented_sources(graph: "ManifestGraph") -> "list[dict]":
     return out
 
 
+def documentation_coverage(graph: "ManifestGraph") -> "list[dict]":
+    """One project-level finding when the share of documented models is below target.
+
+    Mirrors DPE's ``fct_documentation_coverage`` — an aggregate percentage rather
+    than a per-model flag. The ``documentation_coverage`` threshold (default 100)
+    is the minimum acceptable percentage; coverage at or above it is clean.
+
+    Being an aggregate, its finding's ``node`` is the pseudo-id ``"project"`` (not a
+    real ``unique_id``); the SPA renders an unresolvable node as plain text rather
+    than a node-page link, so this degrades gracefully.
+    """
+    models = graph.models
+    if not models:
+        return []
+    documented = sum(1 for m in models if str(getattr(m, "description", "") or "").strip())
+    coverage = round(documented * 100 / len(models), 1)
+    if coverage >= graph.threshold("documentation_coverage"):
+        return []
+    return [
+        finding(
+            "documentation_coverage",
+            "documentation",
+            "project",
+            "project",
+            f"Only {coverage}% of models are documented "
+            f"({documented}/{len(models)}) — below the configured target.",
+        )
+    ]
+
+
 def undocumented_source_tables(graph: "ManifestGraph") -> "list[dict]":
     """Source tables (the individual relations) with no description."""
     out = []

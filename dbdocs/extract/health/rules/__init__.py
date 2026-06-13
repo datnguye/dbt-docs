@@ -24,6 +24,7 @@ of :mod:`base` and :mod:`registry`; no implementation lives here.
 
 from dbdocs.extract.health.rules.base import DEFAULT_THRESHOLDS, NON_PHYSICAL, docs_url, finding
 from dbdocs.extract.health.rules.dimensions.documentation import (
+    documentation_coverage,
     undocumented_models,
     undocumented_source_tables,
     undocumented_sources,
@@ -35,7 +36,9 @@ from dbdocs.extract.health.rules.dimensions.governance import (
 )
 from dbdocs.extract.health.rules.dimensions.modeling import (
     direct_join_to_source,
+    downstream_models_dependent_on_source,
     duplicate_sources,
+    hard_coded_references,
     model_fanout,
     multiple_sources_joined,
     rejoining_of_upstream_concepts,
@@ -54,8 +57,13 @@ from dbdocs.extract.health.rules.dimensions.structure import (
     model_directories,
     model_naming_conventions,
     source_directories,
+    test_directories,
 )
-from dbdocs.extract.health.rules.dimensions.testing import missing_primary_key_tests, test_coverage
+from dbdocs.extract.health.rules.dimensions.testing import (
+    missing_primary_key_tests,
+    missing_source_freshness,
+    test_coverage,
+)
 from dbdocs.extract.health.rules.registry import (
     DIMENSION_RULES,
     ENTRY_POINT_GROUP,
@@ -81,8 +89,11 @@ __all__ = [
     # rule functions (re-exported for direct access / testing)
     "test_coverage",
     "missing_primary_key_tests",
+    "missing_source_freshness",
     "direct_join_to_source",
+    "downstream_models_dependent_on_source",
     "duplicate_sources",
+    "hard_coded_references",
     "model_fanout",
     "multiple_sources_joined",
     "rejoining_of_upstream_concepts",
@@ -92,12 +103,14 @@ __all__ = [
     "staging_dependent_on_marts_or_intermediate",
     "unused_sources",
     "too_many_joins",
+    "documentation_coverage",
     "undocumented_models",
     "undocumented_sources",
     "undocumented_source_tables",
     "model_naming_conventions",
     "model_directories",
     "source_directories",
+    "test_directories",
     "chained_view_dependencies",
     "exposure_parents_materializations",
     "public_models_without_contracts",

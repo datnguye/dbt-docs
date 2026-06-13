@@ -115,6 +115,142 @@ test.describe("search", () => {
     await result.click();
     await expect(page.locator("#app h1")).toContainText("orders");
   });
+
+  test("matches on a column name the full-text index covers", async ({ page }) => {
+    await page.goto("index.html");
+    // count_food_items is a column of model.jaffle_shop.orders — not a model name,
+    // so a hit proves the index reaches column names, not just labels.
+    await page.fill("#search", "count_food_items");
+    const result = page.locator("#search-results a").first();
+    await expect(result).toBeVisible();
+    await result.click();
+    await expect(page.locator("#app h1")).toContainText("orders");
+  });
+
+  test("a non-name hit shows a match-reason snippet (mkdocs-material style)", async ({ page }) => {
+    await page.goto("index.html");
+    // count_food_items only lives in a column, so the result must explain *why*
+    // it matched: a snippet labelled with the matched field + the term marked.
+    await page.fill("#search", "count_food_items");
+    const result = page.locator("#search-results a").first();
+    await expect(result).toBeVisible();
+    const snippet = result.locator(".sr-snippet").first();
+    await expect(snippet).toBeVisible();
+    await expect(snippet.locator(".sr-snippet-field")).toContainText(/Column/i);
+    // MiniSearch tokenizes count_food_items into count/food/items, so the marked
+    // terms are the tokens — assert at least one matched token is highlighted.
+    await expect(snippet.locator("mark").first()).toContainText(/count|food|items/);
+  });
+  test("a snippet never repeats the title's own field (name/label)", async ({ page }) => {
+    await page.goto("index.html");
+    await page.fill("#search", "stg_locations");
+    const result = page.locator("#search-results a").first();
+    await expect(result).toContainText("stg_locations");
+    // The title carries the name; any snippet is for a *different* field that also
+    // matched (relation/SQL/…), never a redundant "Name" snippet.
+    const fields = await result.locator(".sr-snippet-field").allTextContents();
+    for (const f of fields) expect(f).not.toMatch(/^Name$/i);
+  });
+
+  test("type:<resource_type> with no text lists only that type", async ({ page }) => {
+    await page.goto("index.html");
+    // Bare `type:seed` lists every seed and nothing else (the fixture's seeds are
+    // the raw_* tables; no model/source should appear).
+    await page.fill("#search", "type:seed");
+    const rows = page.locator("#search-results a");
+    await expect(rows.first()).toBeVisible();
+    await expect(rows.locator(".sr-meta")).toHaveCount(await rows.count());
+    const metas = await rows.locator(".sr-meta").allTextContents();
+    expect(metas.length).toBeGreaterThan(0);
+    for (const m of metas) expect(m).toContain("seed");
+  });
+
+  test("type:<resource_type> scopes a text query to that type", async ({ page }) => {
+    await page.goto("index.html");
+    // `type:model orders` finds models matching "orders" — never the seeds/sources
+    // that also carry the token.
+    await page.fill("#search", "type:model orders");
+    const metas = await page.locator("#search-results a .sr-meta").allTextContents();
+    expect(metas.length).toBeGreaterThan(0);
+    for (const m of metas) expect(m).toContain("model");
+  });
+
+  test("label:<text> matches names only, skipping SQL/description noise", async ({ page }) => {
+    await page.goto("index.html");
+    // Every hit's title must contain "stg" — a label-scoped query must not surface
+    // a model that only mentions a staging table in its SQL body.
+    await page.fill("#search", "label:stg");
+    const titles = await page.locator("#search-results a .sr-title").allTextContents();
+    expect(titles.length).toBeGreaterThan(0);
+    for (const t of titles) expect(t.toLowerCase()).toContain("stg");
+  });
+
+  test("a non-empty query with no hits shows a 'No matches.' cue", async ({ page }) => {
+    await page.goto("index.html");
+    // type:bogus is a valid operator with an unmatched value — the dropdown must
+    // explain there are no results, not silently hide.
+    await page.fill("#search", "type:bogus");
+    const dropdown = page.locator("#search-results");
+    await expect(dropdown).toBeVisible();
+    await expect(dropdown.locator(".sr-empty")).toContainText("No matches");
+    await expect(dropdown.locator("a")).toHaveCount(0);
+    // ...and the live region announces it too.
+    await expect(page.locator("#search-status")).toContainText("No matches");
+  });
+
+  test("the dropdown exposes combobox/listbox semantics", async ({ page }) => {
+    await page.goto("index.html");
+    const input = page.locator("#search");
+    const results = page.locator("#search-results");
+    // Closed: combobox advertises a controlled, collapsed listbox.
+    await expect(input).toHaveAttribute("role", "combobox");
+    await expect(input).toHaveAttribute("aria-controls", "search-results");
+    await expect(input).toHaveAttribute("aria-expanded", "false");
+    await expect(results).toHaveAttribute("role", "listbox");
+    // Open: aria-expanded flips and each row is an option.
+    await page.fill("#search", "orders");
+    await expect(input).toHaveAttribute("aria-expanded", "true");
+    await expect(results.locator('a[role="option"]').first()).toBeVisible();
+    // The count is announced via a separate live region (role=status), not the
+    // listbox itself — so a screen reader hears "N results." without the option
+    // list being re-read on every keystroke.
+    const status = page.locator("#search-status");
+    await expect(status).toHaveAttribute("role", "status");
+    await expect(results).not.toHaveAttribute("aria-live", /.*/);
+    await expect(status).toContainText(/results?\./);
+  });
+
+  test("arrow keys rove the results and Enter follows the active one", async ({ page }) => {
+    await page.goto("index.html");
+    const input = page.locator("#search");
+    const results = page.locator("#search-results");
+    await page.fill("#search", "orders");
+    await expect(results.locator('a[role="option"]').first()).toBeVisible();
+    // ↓ selects the first row: it gets .active + aria-selected, and the input
+    // points its aria-activedescendant at it (focus stays on the input).
+    await input.press("ArrowDown");
+    const active = results.locator("a.active");
+    await expect(active).toHaveCount(1);
+    await expect(active).toHaveAttribute("aria-selected", "true");
+    const activeId = await active.getAttribute("id");
+    await expect(input).toHaveAttribute("aria-activedescendant", activeId!);
+    // Enter navigates to the roved node and closes the dropdown.
+    await input.press("Enter");
+    await expect(results).toBeHidden();
+    await expect(input).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator("#app h1")).toContainText("orders");
+  });
+
+  test("Escape closes the open dropdown", async ({ page }) => {
+    await page.goto("index.html");
+    const input = page.locator("#search");
+    const results = page.locator("#search-results");
+    await page.fill("#search", "orders");
+    await expect(results).toBeVisible();
+    await input.press("Escape");
+    await expect(results).toBeHidden();
+    await expect(input).toHaveAttribute("aria-expanded", "false");
+  });
 });
 
 test.describe("column-level lineage", () => {

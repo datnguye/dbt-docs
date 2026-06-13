@@ -21,8 +21,9 @@
       <span class="brand-generated" id="brand-generated" hidden></span>
     </div>
     <div class="search-wrap">
-      <input id="search" type="search" placeholder="Search models, sources, columns…" autocomplete="off" />
-      <div id="search-results" class="search-results" hidden></div>
+      <input id="search" type="search" role="combobox" aria-label="Search" aria-expanded="false" aria-controls="search-results" aria-autocomplete="list" autocomplete="off" placeholder="Search models, columns, tags…" />
+      <div id="search-results" class="search-results" role="listbox" aria-label="Search results" hidden></div>
+      <div id="search-status" class="visually-hidden" role="status" aria-live="polite"></div>
     </div>
     <div class="topbar-actions">
       <button id="search-toggle" class="icon-btn search-toggle" aria-label="Toggle search" aria-expanded="false">
