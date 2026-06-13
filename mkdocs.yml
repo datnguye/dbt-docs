@@ -1,4 +1,4 @@
-site_name: dbdocs — alternative dbt docs
+site_name: Alternative dbt docs
 site_url: https://dbdocs.datnguye.me/
 site_author: Dat Nguyen
 site_description: An alternative dbt docs site — catalog + ERD + column-level lineage, baked into one self-contained file
