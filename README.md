@@ -21,19 +21,17 @@ Turn your dbt artifacts into a self-contained docs site: a browsable catalog, an
 
 ## Why dbdocs?
 
-dbt's built-in docs are great — right up until you want to know *which upstream column fed this downstream column*, or *which tables relate to each other*, or *what changed between last week's docs and today's*. dbdocs fills all three gaps without asking you to install a documentation framework or maintain a separate ERD tool.
+dbt's built-in docs stop short of telling you *which upstream column fed this downstream column*, *which tables relate to each other*, or *what changed between builds*. dbdocs fills those gaps — no documentation framework or separate ERD tool to install.
 
-**What you get that nothing else bundles together:**
-
-- **ERD + column-level lineage, side by side.** The entity-relationship diagram (powered by [dbterd](https://github.com/datnguye/dbterd)) shows table relationships; column lineage (traced by [sqlglot](https://github.com/tobymao/sqlglot) from compiled SQL) shows exactly which column fed which. Most alternatives give you one or the other — dbdocs gives you both.
-- **Column impact analysis.** Select any column and see its downstream dependents across the project, so you know what a schema change will break before you run it.
-- **Deep-link URLs.** Every focused node, column, and filtered DAG view has a shareable URL. Paste it in Slack and your teammate lands on exactly the right model, column, or graph state.
-- **Any sqlglot-supported dialect.** The dialect for column-lineage parsing is auto-detected from your manifest's `adapter_type` (Snowflake, BigQuery, Redshift, DuckDB, PostgreSQL, Databricks/Spark, Trino, and more — anything sqlglot understands). Override it per-project with `dialect:` in `dbdocs.yml` when auto-detection isn't enough.
-- **Scales without freezing.** Column-lineage parsing fans out across CPU cores automatically above 500 models, so large projects finish in roughly the same wall-clock time as small ones. The DAG is windowed by React Flow, so a 1 000-model graph doesn't turn your browser into a space heater. The payload ships as an external gzip (`dbdocs-data.json.gz`, decompressed client-side) so `index.html` stays tiny regardless of project size.
-- **Fail-soft.** One model with SQL sqlglot can't parse gets skipped and logged — it never sinks the whole generate run.
-- **Project Health Check.** A scorecard across the six [dbt-project-evaluator](https://dbt-labs.github.io/dbt-project-evaluator/) dimensions (testing, modeling, documentation, structure, performance, governance), computed straight from your `manifest.json` — no extra dbt package, no warehouse. When a `run_results.json` is also present (any `dbt build`/`dbt test`; default `<target_dir>/run_results.json`, override with `--run-results`), each test additionally shows up as a pass/fail finding grouped by what it checks (integrity, referential, validity, business logic, freshness). dbdocs only reads the artifacts — it never runs dbt or touches your warehouse. Fail-soft: a missing `run_results.json` just drops the per-test detail; the dimensions still render.
-- **Versioned deploys, no plugins.** `dbdocs deploy --version v1.2 --alias latest` generates into a plain directory tree, writes a `versions.json` index, and the SPA renders a version dropdown. No mike, no external tooling, no surprise dependencies.
-- **Catalog navigation + client-side search.** Models, seeds, and snapshots grouped by database and schema; full-text search without a backend.
+- **ERD + column-level lineage together.** Table relationships via [dbterd](https://github.com/datnguye/dbterd), plus column lineage traced from compiled SQL by [sqlglot](https://github.com/tobymao/sqlglot). Most tools give you one or the other.
+- **Column impact analysis.** Select a column to see its downstream dependents project-wide — know what a schema change breaks before you run it.
+- **Deep-link URLs.** Every focused node, column, and filtered DAG view has a shareable URL.
+- **Any sqlglot dialect.** Auto-detected from your manifest's `adapter_type` (Snowflake, BigQuery, Redshift, DuckDB, Postgres, Databricks/Spark, Trino, …); override with `dialect:` in `dbdocs.yml`.
+- **Scales without freezing.** Lineage parsing fans out across CPU cores above 500 models; the DAG is windowed by React Flow; the payload ships as an external gzip so `index.html` stays tiny.
+- **Fail-soft.** An unparseable model is skipped and logged, never sinking the run.
+- **Project Health Check.** A scorecard across the six [dbt-project-evaluator](https://dbt-labs.github.io/dbt-project-evaluator/) dimensions, computed from `manifest.json` — no extra package, no warehouse. Add a `run_results.json` (any `dbt build`/`dbt test`) and each test also shows as a pass/fail finding. dbdocs only reads artifacts; it never runs dbt.
+- **Versioned deploys, no plugins.** `dbdocs deploy --version v1.2 --alias latest` writes a plain directory tree + `versions.json`, and the SPA renders a version dropdown. No mike, no external tooling.
+- **Catalog navigation + client-side search.** Grouped by database and schema; full-text search, no backend.
 - **Dark / light theme.**
 
 ## Install
