@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import {
   Background,
   Controls,
@@ -28,6 +28,8 @@ interface Props {
   focus?: string | null;
   data: DbdocsData;
   onOpenNode?: (id: string) => void;
+  initialRtype?: string;
+  initialSchema?: string;
 }
 
 function uniqueSchemas(data: DbdocsData): string[] {
@@ -36,7 +38,25 @@ function uniqueSchemas(data: DbdocsData): string[] {
   return Array.from(set).sort();
 }
 
-export function GraphApp({ mode, focus, data, onOpenNode }: Props): ReactElement {
+/** Build the canonical DAG hash given the current filter state.
+ *  Empty values are omitted; focus is included when present.
+ *  Exported for unit testing. */
+export function buildDagHash(focusId: string | null, rtype: string, schema: string): string {
+  const params: string[] = [];
+  if (focusId) params.push("focus=" + encodeURIComponent(focusId));
+  if (rtype) params.push("rtype=" + encodeURIComponent(rtype));
+  if (schema) params.push("schema=" + encodeURIComponent(schema));
+  return params.length ? "#/dag?" + params.join("&") : "#/dag";
+}
+
+export function GraphApp({
+  mode,
+  focus,
+  data,
+  onOpenNode,
+  initialRtype = "",
+  initialSchema = "",
+}: Props): ReactElement {
   const isDag = mode === "dag";
   // The global ERD (overview) can be unlocked for pan/zoom; the per-node ERD is
   // always locked. The DAG is always interactive.
@@ -48,8 +68,8 @@ export function GraphApp({ mode, focus, data, onOpenNode }: Props): ReactElement
   // with that node's *label* so the box is readable and the highlight resolves.
   const initialLabel = focus && data.nodes?.[focus] ? data.nodes[focus].label : (focus ?? "");
   const [search, setSearch] = useState(initialLabel);
-  const [rtype, setRtype] = useState("");
-  const [schema, setSchema] = useState("");
+  const [rtype, setRtype] = useState(initialRtype);
+  const [schema, setSchema] = useState(initialSchema);
   // A clicked edge highlights itself + its two tables (dimming the rest).
   const [selectedEdge, setSelectedEdge] = useState<{ source: string; target: string } | null>(null);
 
@@ -68,6 +88,17 @@ export function GraphApp({ mode, focus, data, onOpenNode }: Props): ReactElement
     );
   }, [isDag, search, focus, data]);
 
+  // When DAG filter state changes, write it into the parent URL hash via
+  // history.replaceState so the link is always shareable. replaceState does NOT
+  // fire a hashchange event, so the SPA's route() won't remount the graph —
+  // breaking the infinite-mount loop that assignment to location.hash would cause.
+  // We only do this for dag mode; erd/erd-node don't have filter state.
+  useEffect(() => {
+    if (!isDag) return;
+    const newHash = buildDagHash(focusId, rtype, schema);
+    history.replaceState(null, "", newHash);
+  }, [isDag, focusId, rtype, schema]);
+
   // The set of node ids to actually build/lay out for the DAG. Windowing the
   // graph *before* layout is what keeps large projects from freezing: focus →
   // the bounded neighborhood; otherwise the dropdown-filtered set; and if that's
@@ -85,10 +116,15 @@ export function GraphApp({ mode, focus, data, onOpenNode }: Props): ReactElement
     return new Set(ids);
   }, [isDag, focusId, data, rtype, schema]);
 
-  const dagTooLarge = isDag && !focusId && dagKeep !== null && dagKeep.size === 0;
+  const hasFilter = !!(rtype || schema);
+  // Two distinct empty states: the unfocused/unfiltered set exceeds the cap
+  // ("too many models"), vs. an active filter that matched nothing.
+  const dagEmpty = isDag && !focusId && dagKeep !== null && dagKeep.size === 0;
+  const dagFilterEmpty = dagEmpty && hasFilter;
+  const dagTooLarge = dagEmpty && !hasFilter;
 
   const { nodes, edges } = useMemo(() => {
-    if (dagTooLarge) return { nodes: [], edges: [] };
+    if (dagEmpty) return { nodes: [], edges: [] };
     const flow = isDag
       ? buildDagFlow(data, dagKeep ?? undefined)
       : buildErdFlow(data, mode === "erd-node" ? focus : null);
@@ -124,7 +160,7 @@ export function GraphApp({ mode, focus, data, onOpenNode }: Props): ReactElement
       });
     }
     return { nodes: laidNodes as Node[], edges: laidEdges as Edge[] };
-  }, [isDag, mode, focus, focusId, data, dagKeep, dagTooLarge, selectedEdge]);
+  }, [isDag, mode, focus, focusId, data, dagKeep, dagEmpty, selectedEdge]);
 
   const erdNodeEmpty = mode === "erd-node" && edges.length === 0;
   const erdAlgo = data.metadata?.erd_algo ?? "test_relationship";
@@ -181,7 +217,15 @@ export function GraphApp({ mode, focus, data, onOpenNode }: Props): ReactElement
         </div>
       )}
       <div className="dbd-canvas">
-        {dagTooLarge ? (
+        {dagFilterEmpty ? (
+          <div className="dbd-graph-empty">
+            <p>
+              No nodes match the selected filter. Clear or change the
+              type/schema filter above, or focus a node to explore its
+              neighborhood.
+            </p>
+          </div>
+        ) : dagTooLarge ? (
           <div className="dbd-graph-empty">
             <p>
               This project has too many models to draw the full lineage at once.
@@ -217,17 +261,18 @@ export function GraphApp({ mode, focus, data, onOpenNode }: Props): ReactElement
             fitView
             minZoom={0.1}
             proOptions={{ hideAttribution: true }}
+            // Nodes are never hand-draggable (dragging would break the dagre
+            // layout) and never connectable — this holds for the DAG and ERDs
+            // alike. Pan/zoom is the only "interactive" affordance.
+            nodesDraggable={false}
+            nodesConnectable={false}
+            elementsSelectable
             {...(locked
               ? {
                   panOnDrag: false,
                   zoomOnScroll: false,
                   zoomOnPinch: false,
                   zoomOnDoubleClick: false,
-                  nodesDraggable: false,
-                  nodesConnectable: false,
-                  // Pan/zoom locked, but edges/nodes stay selectable so a click
-                  // can highlight a relationship.
-                  elementsSelectable: true,
                   preventScrolling: false,
                   fitViewOptions: { padding: 0.15 },
                 }

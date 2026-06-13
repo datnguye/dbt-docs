@@ -29,7 +29,9 @@ def test_generate_builds_site(monkeypatch):
     )
     result = CliRunner().invoke(dbdocs, ["generate"])
     assert result.exit_code == 0
-    assert "Generated site into /site" in result.output
+    # The build was invoked; the builder itself logs the "Generated site at ..."
+    # line, so the CLI no longer echoes a duplicate.
+    assert "out" in seen
 
 
 def test_generate_dialect_override(monkeypatch):
@@ -42,6 +44,18 @@ def test_generate_dialect_override(monkeypatch):
     result = CliRunner().invoke(dbdocs, ["generate", "--dialect", "bigquery"])
     assert result.exit_code == 0
     assert seen["dialect"] == "bigquery"
+
+
+def test_generate_run_results_override(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(
+        cli_main.ReportBuilder,
+        "generate",
+        lambda self, output_dir: seen.setdefault("run_results", self.config.run_results) or "/site",
+    )
+    result = CliRunner().invoke(dbdocs, ["generate", "--run-results", "/custom/run_results.json"])
+    assert result.exit_code == 0
+    assert seen["run_results"] == "/custom/run_results.json"
 
 
 def test_generate_output_dir_override(monkeypatch):
@@ -87,6 +101,37 @@ def test_serve_command(monkeypatch):
     assert result.exit_code == 0
     assert served["addr"] == ("127.0.0.1", 9001)
     assert served["served"] is True
+
+
+def test_serve_suppresses_version_banner(monkeypatch):
+    """`serve` is a long-running command — it should not log the version banner."""
+    msgs = []
+    monkeypatch.setattr(cli_main.logger, "info", lambda m, *a: msgs.append(m % a))
+    monkeypatch.setattr(
+        cli_main.socketserver,
+        "ThreadingTCPServer",
+        type(
+            "_S",
+            (),
+            {
+                "__init__": lambda self, addr, handler: None,
+                "__enter__": lambda self: self,
+                "__exit__": lambda self, *a: False,
+                "serve_forever": lambda self: None,
+            },
+        ),
+    )
+    CliRunner().invoke(dbdocs, ["serve"])
+    assert not any("Run with dbdocs" in m for m in msgs)
+
+
+def test_generate_logs_version_banner(monkeypatch):
+    """Build commands keep the version banner (it records the build version)."""
+    msgs = []
+    monkeypatch.setattr(cli_main.logger, "info", lambda m, *a: msgs.append(m % a))
+    monkeypatch.setattr(cli_main.ReportBuilder, "generate", lambda self, output_dir: "/site")
+    CliRunner().invoke(dbdocs, ["generate"])
+    assert any("Run with dbdocs" in m for m in msgs)
 
 
 def test_deploy_command(monkeypatch):

@@ -4,9 +4,10 @@
    normalized DATA (set once via init()) and returns plain values/strings that
    the ui tier turns into elements. Keep this file DOM-free. No build step. */
 
-var DATA = { metadata: {}, nodes: {}, lineage: {}, columnLineage: {}, erd: {}, tree: { byDatabase: {} }, readme: "" };
+var DATA = { metadata: {}, nodes: {}, lineage: {}, columnLineage: {}, erd: {}, tree: { byDatabase: {} }, readme: "", health: { enabled: false } };
+var DOWNSTREAM = null;
 
-export function init(data) { DATA = data; }
+export function init(data) { DATA = data; DOWNSTREAM = null; }
 
 export function meta() { return DATA.metadata; }
 export function nodes() { return DATA.nodes; }
@@ -16,6 +17,16 @@ export function readme() { return DATA.readme || ""; }
 export function counts() { return DATA.metadata.counts || {}; }
 
 export function shortName(id) { return String(id).split(".").pop(); }
+
+/* The searchable text for a node in the sidebar tree filter: its table name and
+   its fully-qualified database.schema.table, lowercased. Lets the tree filter
+   match either "orders" or "shaman.jf.orders". DOM-free (ui does the show/hide). */
+export function treeFilterText(id) {
+  var n = DATA.nodes[id];
+  if (!n) return String(id).toLowerCase();
+  var fq = [n.database, n.schema, n.label || n.name].filter(Boolean).join(".");
+  return (fq + " " + (n.label || "") + " " + id).toLowerCase();
+}
 
 /* Minimal, XSS-safe inline markdown for author-controlled config text:
    escapes HTML first, then renders links, **bold**, _italic_/*italic*, `code`.
@@ -65,6 +76,47 @@ export function columnLineageMap(nodeId) {
   return out;
 }
 
+/* Build (lazily, once per init) the inverted downstream index:
+   { "srcNode.srcColLower": [{node: tgtNode, column: tgtCol}, …] }
+   columnLineage keys are "{unique_id}.{column}" — unique_ids contain dots
+   (e.g. model.shop.customers), so we split on the LAST dot only. */
+function buildDownstreamIndex() {
+  if (DOWNSTREAM !== null) return;
+  DOWNSTREAM = {};
+  Object.keys(DATA.columnLineage).forEach(function (tgtFull) {
+    var dot = tgtFull.lastIndexOf(".");
+    var tgtNode = tgtFull.slice(0, dot);
+    var tgtCol = tgtFull.slice(dot + 1);
+    (DATA.columnLineage[tgtFull] || []).forEach(function (src) {
+      var key = src.node + "." + String(src.column).toLowerCase();
+      if (!DOWNSTREAM[key]) DOWNSTREAM[key] = [];
+      DOWNSTREAM[key].push({ node: tgtNode, column: tgtCol });
+    });
+  });
+}
+
+/* { lowercased columnName: [{node, column}, …] } for downstream dependents of
+   one node's columns. Mirrors columnLineageMap but inverted: for each source
+   column, which downstream output columns depend on it. Dedupes identical pairs. */
+export function downstreamMap(nodeId) {
+  buildDownstreamIndex();
+  var prefix = nodeId + ".";
+  var out = {};
+  Object.keys(DOWNSTREAM).forEach(function (k) {
+    if (k.indexOf(prefix) !== 0) return;
+    var col = k.slice(prefix.length);
+    var seen = {};
+    var deduped = (DOWNSTREAM[k] || []).filter(function (u) {
+      var key = u.node + "\0" + u.column;
+      if (seen[key]) return false;
+      seen[key] = true;
+      return true;
+    });
+    if (deduped.length) out[col] = deduped;
+  });
+  return out;
+}
+
 /* Resolve a README-relative path to an absolute GitHub URL; absolute/anchor
    URLs are returned unchanged (null = leave as-is). ``kind`` is raw|blob. */
 export function repoUrl(href, kind) {
@@ -75,6 +127,77 @@ export function repoUrl(href, kind) {
   var path = href.replace(/^\.?\//, ""); // drop leading ./ or /
   return base + "/" + kind + "/HEAD/" + path;
 }
+
+/* Health Check accessors. DOM-free — pure data derivations.
+   Shape: { enabled, dimensions:{<dim>:{issues,checked,findings}}, testResults, note }
+
+   The six dimensions in display order (testing first), each with its issue count
+   and a derived score = 1 - issues/checked (clamped). Returns [] when absent. */
+var HEALTH_DIM_ORDER = ["testing", "documentation", "modeling", "structure", "performance", "governance"];
+export function healthDimensions() {
+  var dims = (DATA.health && DATA.health.dimensions) || {};
+  return HEALTH_DIM_ORDER.filter(function (k) { return dims[k]; }).map(function (key) {
+    var d = dims[key];
+    var checked = d.checked || 0;
+    var issues = d.issues || 0;
+    var score = checked > 0 ? Math.max(0, Math.round((1 - issues / checked) * 100)) : 100;
+    return { key: key, issues: issues, checked: checked, score: score, findings: d.findings || [] };
+  });
+}
+
+/* The Health Check is always built; surface its nav entry + overview card when
+   any dimension has findings. (Per-test pass/fail detail lives on model pages.) */
+export function healthEnabled() {
+  if (!(DATA.health && DATA.health.enabled)) return false;
+  var dims = DATA.health.dimensions || {};
+  return Object.keys(dims).some(function (k) { return (dims[k].issues || 0) > 0; });
+}
+
+/* Total issues across all dimensions (the headline number on the overview card). */
+export function healthTotalIssues() {
+  var dims = (DATA.health && DATA.health.dimensions) || {};
+  return Object.keys(dims).reduce(function (sum, k) { return sum + (dims[k].issues || 0); }, 0);
+}
+
+/* Per-test pass/fail detail (or null when run_results.json was absent). */
+export function healthTestResults() { return (DATA.health && DATA.health.testResults) || null; }
+export function healthNote() { return (DATA.health && DATA.health.note) || ""; }
+
+/* The dbt tests attached to one model, for its node page, split into data tests
+   and unit tests. Returns { data:[...], unit:[...], summary } (each test sorted
+   worst-status-first) or null when run_results.json was absent / the model has no
+   tests. Test findings carry the tested model's short name (manifest
+   attached_node / unit_test model), matched against this node's label / short id. */
+var _STATUS_RANK = { fail: 0, error: 1, warn: 2, skipped: 3, pass: 4 };
+function _rankStatus(s) { return _STATUS_RANK[s] != null ? _STATUS_RANK[s] : 9; }
+export function testResultsForNode(nodeId) {
+  var tr = DATA.health && DATA.health.testResults;
+  if (!tr) return null;
+  var node = DATA.nodes[nodeId];
+  if (!node) return null;
+  var short = shortName(nodeId);
+  var data = [];
+  var unit = [];
+  Object.keys(tr.categories || {}).forEach(function (cat) {
+    (tr.categories[cat] || []).forEach(function (f) {
+      if (f.model !== node.label && f.model !== short) return;
+      (f.kind === "unit" ? unit : data).push(f);
+    });
+  });
+  if (!data.length && !unit.length) return null;
+  var byStatus = function (a, b) { return _rankStatus(a.status) - _rankStatus(b.status); };
+  data.sort(byStatus);
+  unit.sort(byStatus);
+  var summary = { pass: 0, warn: 0, fail: 0, error: 0, skipped: 0, total: 0 };
+  data.concat(unit).forEach(function (f) {
+    if (summary[f.status] != null) summary[f.status] += 1;
+    summary.total += 1;
+  });
+  return { data: data, unit: unit, summary: summary };
+}
+
+/* Resolve a finding's node unique_id to its node record (or null). */
+export function nodeOrNull(id) { return DATA.nodes[id] || null; }
 
 export function pluralize(rtype) {
   var label = String(rtype).replace(/_/g, " ");

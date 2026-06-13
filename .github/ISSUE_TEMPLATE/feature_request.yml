@@ -1,0 +1,66 @@
+name: ✨ Feature request
+description: Suggest a new capability or an improvement to dbdocs.
+title: "feat: <short summary>"
+labels: ["enhancement", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Got an idea to make dbdocs better? We're all ears. Tell us the problem
+        first — the best features start life as a well-described annoyance.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Pre-flight checklist
+      options:
+        - label: I searched [existing issues](https://github.com/datnguye/dbt-docs/issues) and this isn't already proposed.
+          required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of dbdocs?
+      options:
+        - "CLI (generate / serve / deploy)"
+        - "Generated site: catalog / node pages"
+        - "Generated site: DAG / ERD graph"
+        - "Generated site: column-level lineage"
+        - "Generated site: Health Check"
+        - "Config (dbdocs.yml)"
+        - "Packaging / install / CI"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The use case or pain point. "I'm always having to ..." beats "add a button".
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you'd like dbdocs to do. Sketch the CLI flag, the dbdocs.yml key, or the UI if you can.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you weighed, or how you work around it today.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Would you like to contribute this?
+      options:
+        - label: I'm willing to open a PR for this (we'll happily guide you).
+          required: false

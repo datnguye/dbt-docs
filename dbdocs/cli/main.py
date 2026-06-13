@@ -26,7 +26,10 @@ __version__ = importlib.metadata.version("dbdocs")
 @click.pass_context
 def dbdocs(ctx, config_path):
     """Alternative dbt docs site: dbt docs + ERD + column-level lineage."""
-    logger.info("Run with dbdocs==%s", __version__)
+    # The version banner is useful for the build commands (generate/deploy) but
+    # is noise for the long-running `serve`, which prints its own start line.
+    if ctx.invoked_subcommand != "serve":
+        logger.info("Run with dbdocs==%s", __version__)
     try:
         ctx.obj = DbDocsConfig.load(config_path)
     except DbDocsError as exc:
@@ -38,16 +41,25 @@ def dbdocs(ctx, config_path):
 @click.option(
     "--dialect", default=None, help="SQL dialect for column lineage (default: adapter_type)."
 )
+@click.option(
+    "--run-results",
+    default=None,
+    help=(
+        "Path to run_results.json for the Health Check (default: <target_dir>/run_results.json)."
+    ),
+)
 @click.pass_obj
-def generate(config: DbDocsConfig, output_dir, dialect):
+def generate(config: DbDocsConfig, output_dir, dialect, run_results):
     """Build the site from dbt artifacts (served over HTTP; data loaded externally)."""
     if dialect is not None:
         config.dialect = dialect
+    if run_results is not None:
+        config.run_results = run_results
     try:
-        out = ReportBuilder(config).generate(output_dir=output_dir)
+        ReportBuilder(config).generate(output_dir=output_dir)
     except DbDocsError as exc:
         raise click.ClickException(str(exc)) from exc
-    click.echo(f"Generated site into {out}")
+    # The builder already logs "Generated site at <path> (N nodes, M edges)".
 
 
 @dbdocs.command(name="serve")

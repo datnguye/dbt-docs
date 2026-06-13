@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Questions & Discussions
+    url: https://github.com/datnguye/dbt-docs/discussions
+    about: Ask how-to questions, share a setup, or float an idea before filing an issue.
+  - name: 📖 Documentation
+    url: https://dbdocs.datnguye.me
+    about: The dbdocs docs site — check here before reporting a docs gap.

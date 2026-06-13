@@ -24,6 +24,64 @@ readme: README.md
 # mike publishes it at /latest/demo/latest/. This path is gitignored (/docs/demo).
 output_dir: docs/demo
 
+# The Health Check page is always built from the manifest (the six DPE
+# dimensions). The per-test pass/fail detail comes from run_results.json, which
+# lives alongside the artifacts in target_dir, so the default
+# <target_dir>/run_results.json resolves — no explicit run_results needed.
+#
+# The health rule engine is configurable. Every threshold below is set to its
+# dbt-project-evaluator default; tune them, disable individual rules or whole
+# dimensions, or load custom rules. All built-in rules are listed (commented)
+# under `disable` for reference.
+health:
+  # Rule thresholds (DPE defaults shown).
+  thresholds:
+    model_fanout: 3              # > N direct model children is flagged
+    too_many_joins: 7            # >= N upstream dependencies is flagged
+    chained_view_dependencies: 4 # >= N-deep view/ephemeral chain is flagged
+
+  # Disable individual rules by name (none disabled in the demo). The full set:
+  disable: []
+    # testing:
+    #   - test_coverage
+    #   - missing_primary_key_tests
+    # modeling:
+    #   - direct_join_to_source
+    #   - duplicate_sources
+    #   - model_fanout
+    #   - multiple_sources_joined
+    #   - rejoining_of_upstream_concepts
+    #   - root_models
+    #   - source_fanout
+    #   - staging_dependent_on_staging
+    #   - staging_dependent_on_marts_or_intermediate
+    #   - unused_sources
+    #   - too_many_joins
+    # documentation:
+    #   - undocumented_models
+    #   - undocumented_sources
+    #   - undocumented_source_tables
+    # structure:
+    #   - model_naming_conventions
+    #   - model_directories
+    #   - source_directories
+    # performance:
+    #   - chained_view_dependencies
+    #   - exposure_parents_materializations
+    # governance:
+    #   - public_models_without_contracts
+    #   - undocumented_public_models
+    #   - exposures_dependent_on_private_models
+
+  # Disable whole dimensions (none in the demo). One of: testing, modeling,
+  # documentation, structure, performance, governance.
+  disable_dimensions: []
+
+  # Load custom rules from a dotted module path; the module calls
+  # `register_rule("<dimension>", fn)` at import time. Installed packages can also
+  # ship rules via the `dbdocs.health_rules` entry-point group.
+  # rules_module: my_project.dbdocs_health_rules
+
 # dbterd configs
 dbterd:
   algo: model_contract

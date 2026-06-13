@@ -14,6 +14,13 @@
   --code-bg: #f5f6f8;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   --radius: 8px;
+  /* Health-status palette — one source of truth for the pill / badge / score
+     families (pass=warn=fail=error must read identically wherever they appear). */
+  --status-pass-bg: #d1fae5; --status-pass-fg: #065f46; --status-pass-bd: #6ee7b7;
+  --status-warn-bg: #fef9c3; --status-warn-fg: #854d0e; --status-warn-bd: #fde047;
+  --status-fail-bg: #fee2e2; --status-fail-fg: #991b1b; --status-fail-bd: #fca5a5;
+  --status-error-bg: #fde2e2; --status-error-fg: #7f1d1d; --status-error-bd: #f87171;
+  --score-good: #10b981; --score-warn: #f59e0b; --score-bad: #ef4444;
 }
 [data-theme="dark"] {
   --bg: #0e1116;
@@ -30,6 +37,10 @@
   --snapshot: #a371f7;
   --code-bg: #11161d;
   --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --status-pass-bg: #064e3b; --status-pass-fg: #6ee7b7; --status-pass-bd: #047857;
+  --status-warn-bg: #422006; --status-warn-fg: #fde047; --status-warn-bd: #92400e;
+  --status-fail-bg: #450a0a; --status-fail-fg: #fca5a5; --status-fail-bd: #991b1b;
+  --status-error-bg: #500a0a; --status-error-fg: #f87171; --status-error-bd: #b91c1c;
 }
 
 * { box-sizing: border-box; }
@@ -106,12 +117,51 @@ code, pre { font-family: "SF Mono", "Roboto Mono", Menlo, Consolas, monospace; }
 .version-switcher:focus { outline: none; border-color: var(--accent); }
 
 /* Layout */
-.layout { display: flex; height: calc(100vh - 52px); }
+.layout { display: flex; height: calc(100vh - 52px); position: relative; }
 .sidebar-col {
+  position: relative;
   width: 300px; flex-shrink: 0; display: flex; flex-direction: column;
   background: var(--bg-soft); border-right: 1px solid var(--border);
+  transition: width 0.18s ease, opacity 0.18s ease;
 }
+/* Collapse handle — a thin control on the sidebar's right divider edge,
+   vertically centered, subtle until the pane is hovered. Clicking hides the pane. */
+.nav-collapse {
+  position: absolute; top: 50%; right: -1px; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 44px; padding: 0; z-index: 5;
+  border: 1px solid var(--border); border-right: none;
+  border-radius: var(--radius) 0 0 var(--radius);
+  background: var(--bg-soft); color: var(--text-soft); cursor: pointer;
+  opacity: 0; transition: opacity 0.15s, color 0.15s;
+}
+.sidebar-col:hover .nav-collapse, .nav-collapse:focus-visible { opacity: 1; }
+.nav-collapse:hover { color: var(--accent); border-color: var(--accent); }
+/* Collapsed: the column shrinks to zero; the » rail re-opens it. */
+body.nav-collapsed .sidebar-col {
+  width: 0; opacity: 0; overflow: hidden; border-right: none;
+}
+body.nav-collapsed .nav-collapse { display: none; }
+/* Reopen tab — mirrors the collapse handle: a thin tab on the left content edge,
+   vertically centered, shown only while the pane is collapsed. */
+.nav-reopen {
+  display: none; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  align-items: center; justify-content: center; z-index: 20;
+  width: 18px; height: 44px; padding: 0;
+  border: 1px solid var(--border); border-left: none;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  background: var(--bg-soft); color: var(--text-soft); cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+.nav-reopen:hover { color: var(--accent); border-color: var(--accent); }
+body.nav-collapsed .nav-reopen { display: inline-flex; }
 .sidebar { flex: 1; overflow-y: auto; padding: 12px; }
+.nav-filter {
+  width: 100%; box-sizing: border-box; margin: 6px 0 10px;
+  padding: 7px 10px; font-size: 13px; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+}
+.nav-filter:focus { outline: none; border-color: var(--accent); }
 .content { flex: 1; overflow-y: auto; padding: 28px 36px; outline: none; }
 .content:focus { outline: none; }
 
@@ -142,8 +192,9 @@ code, pre { font-family: "SF Mono", "Roboto Mono", Menlo, Consolas, monospace; }
 .bmc:hover { filter: brightness(0.95); text-decoration: none; }
 
 /* Inline icons — uniform 16px, vertically centered with their label. */
-.ic { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; flex-shrink: 0; color: var(--text-soft); }
-.ic svg { display: block; }
+/* Icon box + mask live in icons.css (Lucide CSS masks); here we only set the
+   default tint. Size comes from font-size (the mask is 1em), set by icon(). */
+.ic { color: var(--text-soft); }
 
 /* Nav tree */
 .nav-section > summary {
@@ -244,6 +295,7 @@ details.macro pre.code { margin: 0; border: none; border-top: 1px solid var(--bo
 .graph-host:fullscreen .dbd-graph { height: 100vh; border: none; border-radius: 0; }
 
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.page-head-actions { display: flex; align-items: center; gap: 8px; }
 .fs-btn {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px;
   border: 1px solid var(--border); border-radius: var(--radius);
@@ -251,6 +303,9 @@ details.macro pre.code { margin: 0; border: none; border-top: 1px solid var(--bo
 }
 .fs-btn:hover { border-color: var(--accent); color: var(--accent); }
 .fs-btn .ic { color: inherit; }
+/* Copy-link button: matches .fs-btn styling; the .copied class is toggled by ui.js
+   for ~1.8s after a successful copy to flash the accent border/text. */
+.copy-link-btn.copied { border-color: var(--accent); color: var(--accent); }
 
 /* Version not-latest warning banner */
 .version-warning {
@@ -295,6 +350,92 @@ details.macro pre.code { margin: 0; border: none; border-top: 1px solid var(--bo
 .markdown-body img { max-width: 100%; height: auto; border-radius: 6px; }
 .markdown-body hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
 
+/* ---------- Health Check page ---------- */
+.health-card {
+  margin: 16px 0 24px; padding: 16px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--bg-soft);
+}
+.health-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.health-card-title { font-size: 16px; font-weight: 700; margin: 0 0 10px; border: none; padding: 0; }
+.health-card-link { font-size: 13px; }
+.health-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.health-pills-lg { margin: 10px 0 4px; }
+.health-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  border: 1px solid transparent;
+}
+.health-pill.pass   { background: var(--status-pass-bg); color: var(--status-pass-fg); border-color: var(--status-pass-bd); }
+.health-pill.warn   { background: var(--status-warn-bg); color: var(--status-warn-fg); border-color: var(--status-warn-bd); }
+.health-pill.fail   { background: var(--status-fail-bg); color: var(--status-fail-fg); border-color: var(--status-fail-bd); }
+.health-pill.error  { background: var(--status-error-bg); color: var(--status-error-fg); border-color: var(--status-error-bd); }
+.health-pill.skipped { background: var(--bg-soft); color: var(--text-soft); border-color: var(--border); }
+.health-pill.total  { background: var(--bg-soft); color: var(--text-soft); border-color: var(--border); font-weight: 600; }
+.health-cat-count { font-weight: 400; font-size: 14px; }
+/* Collapsible category groups (native <details>, like details.macro). */
+details.health-section { margin: 18px 0 0; }
+details.health-section > summary {
+  cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: 6px;
+  font-size: 20px; font-weight: 700; padding: 6px 0;
+}
+details.health-section > summary::-webkit-details-marker { display: none; }
+details.health-section > summary::before {
+  content: "▸"; font-size: 14px; color: var(--text-soft);
+  transition: transform 0.15s; display: inline-block;
+}
+details.health-section[open] > summary::before { transform: rotate(90deg); }
+details.health-section > summary:hover .health-section-title { text-decoration: underline; }
+.health-section-body { margin-top: 8px; padding-left: 20px; }
+.health-section-title { font-size: 20px; }
+/* Per-rule blocks within a dimension */
+.health-rule { margin: 14px 0; }
+.health-rule-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
+.health-rule-name { font-size: 14px; font-weight: 600; }
+.health-rule-docs { font-size: 12px; }
+.health-note { font-style: italic; }
+/* Per-model Tests section on the node page */
+.node-tests { margin: 8px 0; }
+.node-tests .health-pills { margin: 4px 0 10px; }
+/* Scorecard: one chip per dimension, stretched evenly across the full width. */
+.health-scorecard {
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin: 14px 0;
+}
+.score-chip {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--bg-soft); text-decoration: none; color: inherit;
+  border-left-width: 4px;
+}
+/* Narrow viewports: wrap to fewer columns rather than squeezing six. */
+@media (max-width: 900px) { .health-scorecard { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 560px) { .health-scorecard { grid-template-columns: repeat(2, 1fr); } }
+a.score-chip:hover { background: var(--bg-elev); }
+.score-chip.good { border-left-color: var(--score-good); }
+.score-chip.warn { border-left-color: var(--score-warn); }
+.score-chip.bad  { border-left-color: var(--score-bad); }
+/* Dimension name reads as the chip title; the big score is the focal anchor. */
+.score-name { font-size: 13px; font-weight: 600; }
+.score-num { font-size: 22px; font-weight: 800; line-height: 1; margin-top: 2px; }
+/* De-emphasize the unit: smaller, lighter, slightly muted vs the number. */
+.score-pct { font-size: 0.62em; font-weight: 600; margin-left: 1px; opacity: 0.6; }
+.score-issues { font-size: 12px; }
+.health-card-sub { margin: 2px 0 8px; font-size: 13px; }
+/* Inline score pill on a dimension summary */
+.score-pill {
+  display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; border: 1px solid transparent;
+}
+.score-pill.good { background: var(--status-pass-bg); color: var(--status-pass-fg); }
+.score-pill.warn { background: var(--status-warn-bg); color: var(--status-warn-fg); }
+.score-pill.bad  { background: var(--status-fail-bg); color: var(--status-fail-fg); }
+/* Status badges in the health findings table */
+.health-status { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.health-pass  { background: var(--status-pass-bg); color: var(--status-pass-fg); border-color: var(--status-pass-bd); }
+.health-warn  { background: var(--status-warn-bg); color: var(--status-warn-fg); border-color: var(--status-warn-bd); }
+.health-fail  { background: var(--status-fail-bg); color: var(--status-fail-fg); border-color: var(--status-fail-bd); }
+.health-error { background: var(--status-error-bg); color: var(--status-error-fg); border-color: var(--status-error-bd); }
+.health-skip  { background: var(--bg-soft); color: var(--text-soft); border-color: var(--border); }
+
 /* Hamburger + search toggle — hidden on desktop, revealed on phones below. */
 .nav-toggle { display: none; font-size: 18px; }
 .search-toggle { display: none; }
@@ -318,6 +459,10 @@ details.macro pre.code { margin: 0; border: none; border-top: 1px solid var(--bo
     box-shadow: var(--shadow);
   }
   body.nav-open .sidebar-col { transform: translateX(0); }
+  /* The desktop collapse chrome is irrelevant on phones (the drawer handles it). */
+  .nav-collapse, .nav-reopen { display: none; }
+  body.nav-collapsed .sidebar-col { width: 84vw; opacity: 1; }
+  body.nav-collapsed .nav-reopen { display: none; }
   .content { padding: 20px 16px; }
   /* Let the columns table scroll horizontally rather than blow out the page. */
   .content table { display: block; overflow-x: auto; white-space: nowrap; }

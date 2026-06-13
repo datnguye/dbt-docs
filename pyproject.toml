@@ -15,8 +15,10 @@ classifiers = [
   "Topic :: Software Development :: Quality Assurance",
 ]
 dependencies = [
+  "artifact-parser[dbt]>=1.0.0",
   "click>=8.1",
-  "dbterd>=1.26",
+  "dbterd>=1.27",
+  "pydantic>=2.13.4",
   "pyyaml>=6.0",
   "sqlglot>=25",
 ]

@@ -65,6 +65,7 @@ def test_render_context_excludes_build_fields():
         "dbterd",
         "logo",
         "favicon",
+        "run_results",
     ):
         assert field not in context
     assert context["site_name"] == "dbt docs"
@@ -163,3 +164,14 @@ def test_resolve_within_cwd_equal_to_base_is_allowed(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     cfg = DbDocsConfig(output_dir=".")
     assert cfg.output_path == str(tmp_path.resolve())
+
+
+def test_run_results_defaults_to_none():
+    assert DbDocsConfig().run_results is None
+
+
+def test_load_reads_run_results(tmp_path):
+    path = tmp_path / "dbdocs.yml"
+    path.write_text("run_results: target/run_results.json\n", encoding="utf-8")
+    cfg = DbDocsConfig.load(path)
+    assert cfg.run_results == "target/run_results.json"

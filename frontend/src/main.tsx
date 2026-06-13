@@ -16,6 +16,8 @@ function mount(el: HTMLElement): void {
   if (!data) return;
   const mode = (el.dataset.mode as GraphMode) || "dag";
   const focus = el.dataset.focus || null;
+  const initialRtype = el.dataset.rtype || "";
+  const initialSchema = el.dataset.schema || "";
   const onOpenNode = (id: string) => {
     location.hash = `#/node/${encodeURIComponent(id)}`;
   };
@@ -23,7 +25,14 @@ function mount(el: HTMLElement): void {
   roots.set(el, root);
   root.render(
     <StrictMode>
-      <GraphApp mode={mode} focus={focus} data={data} onOpenNode={onOpenNode} />
+      <GraphApp
+        mode={mode}
+        focus={focus}
+        data={data}
+        onOpenNode={onOpenNode}
+        initialRtype={initialRtype}
+        initialSchema={initialSchema}
+      />
     </StrictMode>,
   );
 }
