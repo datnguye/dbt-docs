@@ -17,7 +17,7 @@ classifiers = [
 dependencies = [
   "artifact-parser[dbt]>=1.0.0",
   "click>=8.1",
-  "dbterd>=1.27",
+  "dbterd>=1.28",
   "pydantic>=2.13.4",
   "pyyaml>=6.0",
   "sqlglot>=25",
@@ -59,7 +59,8 @@ dev = [
   "pdoc>=14.4.0",
 ]
 docs = [
-  "mkdocs-material>=9.5",
+  "mkdocs>=1.6,<2.0",
+  "mkdocs-material>=9.5,<10",
   "mkdocs-minify-plugin>=0.8",
   "mike>=2.1",
 ]

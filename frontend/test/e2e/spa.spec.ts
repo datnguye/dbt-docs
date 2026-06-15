@@ -338,6 +338,28 @@ test.describe("graphs", () => {
     await expect(empty).toContainText("No ERD relationships detected");
     await expect(empty.locator('a[href*="dbterd.datnguye.me"]')).toBeVisible();
   });
+
+  test("the model_contract algo detects FK relationships and renders the ERD", async ({ page }) => {
+    // The demo is built with `algo: model_contract` (docs/dbdocs-demo.yml), so
+    // dbterd derives FKs from each model's contract constraints rather than from
+    // `relationships` tests. orders' contract has location_id → locations and is
+    // referenced by fct_customer_segment_orders, so its per-node ERD windows to
+    // orders plus those two directly-related tables.
+    await page.goto("index.html#/node/model.jaffle_shop.orders");
+    // No empty-state placeholder — model_contract detected relationships.
+    await expect(page.locator(".dbd-graph-empty")).toHaveCount(0);
+    const tables = page.locator(".dbd-erd");
+    await expect(tables.first()).toBeVisible();
+    await expect(tables).toHaveCount(3);
+    // entity_name_format: table → the label is the bare model name.
+    await expect(page.locator(".dbd-erd-focus .dbd-erd-name")).toHaveText("orders");
+    await expect(page.locator(".react-flow__edge")).toHaveCount(2);
+    // model_contract populates PK/FK badges from the contract: orders carries a
+    // PK (order_id) and an FK (location_id) — test_relationship would not.
+    const focus = page.locator(".dbd-erd-focus");
+    await expect(focus.locator(".dbd-erd-badge.dbd-pk")).toHaveCount(1);
+    await expect(focus.locator(".dbd-erd-badge.dbd-fk")).toHaveCount(1);
+  });
 });
 
 test.describe("deep-link URL state (B1 + B2)", () => {
