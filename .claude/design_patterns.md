@@ -32,21 +32,24 @@ authoritative; grep it.
   - [Windowed graph rendering](#windowed-graph-rendering)
     - [Theory](#theory-7)
     - [Example](#example-7)
-  - [Bundled SPA directory resolution](#bundled-spa-directory-resolution)
+  - [ERD from dbterd's built-in json target](#erd-from-dbterds-built-in-json-target)
     - [Theory](#theory-8)
     - [Example](#example-8)
-  - [Versioned deploy without mike](#versioned-deploy-without-mike)
+  - [Bundled SPA directory resolution](#bundled-spa-directory-resolution)
     - [Theory](#theory-9)
     - [Example](#example-9)
-  - [Click group entrypoint](#click-group-entrypoint)
+  - [Versioned deploy without mike](#versioned-deploy-without-mike)
     - [Theory](#theory-10)
     - [Example](#example-10)
-  - [Singleton colored logger](#singleton-colored-logger)
+  - [Click group entrypoint](#click-group-entrypoint)
     - [Theory](#theory-11)
     - [Example](#example-11)
-  - [Always-built artifact-derived data-dict section (Health Check)](#always-built-artifact-derived-data-dict-section-health-check)
+  - [Singleton colored logger](#singleton-colored-logger)
     - [Theory](#theory-12)
     - [Example](#example-12)
+  - [Always-built artifact-derived data-dict section (Health Check)](#always-built-artifact-derived-data-dict-section-health-check)
+    - [Theory](#theory-13)
+    - [Example](#example-13)
 
 ## Pipeline-stage package layout
 
@@ -353,6 +356,55 @@ const dagKeep = useMemo(() => {
 - `frontend/src/lib/data.ts` — `neighborhood`, `buildDagFlow`
 - `frontend/src/components/GraphApp.tsx` — `MAX_UNFOCUSED_DAG_NODES`, `dagKeep`, `erdNodeEmpty`
 - `dbdocs/site/builder.py` / `dbdocs/extract/erd.py` — `erd_algo` (metadata)
+
+## ERD from dbterd's built-in json target
+
+### Theory
+
+The SPA renders its ERD with React Flow, which needs structured node/edge data
+— not the diagram *text* dbterd's other targets emit. dbterd ≥ 1.28 ships a
+**built-in, schema-validated `json` target** that emits `{nodes, edges,
+metadata}`; `build_erd(target="json")` forces it, and `build_erd_data` maps that
+into the SPA's `{nodes, edges}`. Do **not** reintroduce a custom
+`@register_target("json")` adapter — dbterd owns this contract now. Two dbterd
+quirks `build_erd_data` patches (verify after any dbterd bump with
+`task frontend:e2e`):
+
+1. **Short-name edge ids.** With `entity_name_format` configured, dbterd emits
+   edge `from_id`/`to_id` as the *formatted entity name* (e.g. `orders`), not the
+   full unique_id (e.g. `model.jaffle_shop.orders`). `_resolve_edge_id` resolves
+   those back through a `name_to_id` map (built from each node's `name`) so the
+   SPA's `source`/`target` always reference a valid node `id`. An id already in
+   `node_ids` passes through untouched (the no-`entity_name_format` case).
+2. **Missing FK flags.** Some algos (e.g. `model_contract`) don't set
+   `is_foreign_key` on node columns even when those columns appear in FK edges.
+   `_backfill_fk_flags` sets `is_foreign_key=True` on any column named in an
+   edge's `from_columns` (the FK/child side), indexed by node id so it's O(1) per
+   column per edge.
+
+**SPA edge direction:** `source` = the referenced/parent side (dbterd `to_id`),
+`target` = the FK/child side (dbterd `from_id`). The graph bundle's per-column
+connector handles (`buildErdFlow` in `frontend/src/lib/data.ts`) resolve each
+handle against whichever endpoint actually owns the named column (`owned(...)`),
+so a join whose FK/PK columns differ in name still lands on the right rows.
+
+### Example
+
+```python
+# dbdocs/extract/erd.py — official {nodes, edges}; resolve short names + back-fill FK flags
+payload = json.loads(erd.get_erd())
+raw_nodes = payload.get("nodes", [])
+nodes = [_build_node(n) for n in raw_nodes]
+node_ids = {n["id"] for n in nodes}
+name_to_id = {n.get("name"): n["id"] for n in raw_nodes if n.get("name")}
+edges = [_build_edge(e, i, node_ids, name_to_id) for i, e in enumerate(payload.get("edges", []))]
+_backfill_fk_flags(nodes, edges)
+return {"nodes": nodes, "edges": edges}
+```
+
+- `dbdocs/extract/erd.py` — `def build_erd` (forces `target="json"`), `def build_erd_data`, `def _build_node`, `def _build_edge`, `def _resolve_edge_id`, `def _backfill_fk_flags`
+- `frontend/src/lib/data.ts` — `buildErdFlow` (consumes `source`/`target`/`from_columns`/`to_columns`/`is_foreign_key`; `owned()` picks the handle column each endpoint owns)
+- `pyproject.toml` — `dbterd>=1.28` (the built-in `json` target floor)
 
 ## Bundled SPA directory resolution
 

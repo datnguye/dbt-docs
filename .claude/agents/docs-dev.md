@@ -20,11 +20,12 @@ mkdocs-material, mike, or Jinja2 templating — those are gone.
 - `dbdocs/cli/main.py` — the click command group and subcommands
   (`generate`, `serve`, `deploy`).
 - `dbdocs/extract/` — derive doc data from artifacts: `nodes` (models/sources/
-  seeds/snapshots → display records + nav tree), `erd` + `erd_json` (structured
-  ERD `{nodes, edges}` via a dbterd `json` target adapter — not Mermaid text; the
-  SPA renders it with React Flow), `graph` (the node-level DAG), `column_lineage`
-  + `_sqlglot_lineage` (column-level lineage via sqlglot), and the `health/`
-  sub-package (the always-built Health Check section from `run_results.json`).
+  seeds/snapshots → display records + nav tree), `erd` (structured ERD
+  `{nodes, edges}` via dbterd's built-in `json` target ≥ 1.28.0 — not Mermaid
+  text; the SPA renders it with React Flow), `graph` (the node-level DAG),
+  `column_lineage` + `_sqlglot_lineage` (column-level lineage via sqlglot), and
+  the `health/` sub-package (the always-built Health Check section from
+  `run_results.json`).
 - `dbdocs/site/` — `builder` (assemble the one data dict + write the site),
   `inject` (`strip_marker` removes the `<!-- DBDOCS_DATA -->` placeholder — the
   data is external, not inlined), `deploy` (hand-rolled versioning), and the

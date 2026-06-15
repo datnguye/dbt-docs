@@ -366,6 +366,7 @@ dev = [
 ]
 docs = [
     { name = "mike" },
+    { name = "mkdocs" },
     { name = "mkdocs-material" },
     { name = "mkdocs-minify-plugin" },
 ]
@@ -374,7 +375,7 @@ docs = [
 requires-dist = [
     { name = "artifact-parser", extras = ["dbt"], specifier = ">=1.0.0" },
     { name = "click", specifier = ">=8.1" },
-    { name = "dbterd", specifier = ">=1.27" },
+    { name = "dbterd", specifier = ">=1.28" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "sqlglot", specifier = ">=25" },
@@ -390,7 +391,8 @@ dev = [
 ]
 docs = [
     { name = "mike", specifier = ">=2.1" },
-    { name = "mkdocs-material", specifier = ">=9.5" },
+    { name = "mkdocs", specifier = ">=1.6,<2.0" },
+    { name = "mkdocs-material", specifier = ">=9.5,<10" },
     { name = "mkdocs-minify-plugin", specifier = ">=0.8" },
 ]
 
@@ -543,7 +545,7 @@ wheels = [
 
 [[package]]
 name = "dbterd"
-version = "1.27.0"
+version = "1.28.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "artifact-parser" },
@@ -551,9 +553,9 @@ dependencies = [
     { name = "requests" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/14/fd/768e87ffa0ce76329afc356421fae62361b5a921233928d25eb0f947eaeb/dbterd-1.27.0.tar.gz", hash = "sha256:3b534058b19b2a52de0e97b1f45f345599b407c177cffdcb274f1f6d4a939648", size = 61297, upload-time = "2026-06-13T07:14:46.813Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/06/09/210b0fd41a1a76ebd37d7f9dab764aee0c9f9e49ada55dd8710d23065b8c/dbterd-1.28.0.tar.gz", hash = "sha256:038b76206ce17d117f9628a12e18ab84d347ba738f9a211a0cef11539ea45967", size = 64499, upload-time = "2026-06-14T14:21:15.976Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e0/b2/f52d920e65947589f6967b1e8fce2d7e2b96ad71a14ded0c602d7299aa17/dbterd-1.27.0-py3-none-any.whl", hash = "sha256:5a3a5aae3f323eea451b68dc93a0f3d55fc0a2864e5e240df10e4f5007128ddb", size = 79552, upload-time = "2026-06-13T07:14:45.168Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/15/0beb8bbb07eac3048ce39a0bd2250ee6948d951d5f718d41bdd0c3fca8b1/dbterd-1.28.0-py3-none-any.whl", hash = "sha256:aa190d8ccf3d2de3107cf41b0c864f57b237bf44e37dcaff185ff1d46229ca18", size = 83797, upload-time = "2026-06-14T14:21:14.54Z" },
 ]
 
 [[package]]
@@ -1350,7 +1352,7 @@ wheels = [
 
 [[package]]
 name = "pytest"
-version = "9.0.3"
+version = "9.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "colorama", marker = "sys_platform == 'win32'" },
@@ -1361,9 +1363,9 @@ dependencies = [
     { name = "pygments" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7d/0d/549bd94f1a0a402dc8cf64563a117c0f3765662e2e668477624baeec44d5/pytest-9.0.3.tar.gz", hash = "sha256:b86ada508af81d19edeb213c681b1d48246c1a91d304c6c81a427674c17eb91c", size = 1572165, upload-time = "2026-04-07T17:16:18.027Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/84/0e/b5858858d74958632c49b72cb25a3976ff9f632397626715be71c89d3971/pytest-9.1.0.tar.gz", hash = "sha256:41dd9148c08072446394cefd3d79701701335a9f4cae69ba92e39f6c7f5c061c", size = 1634181, upload-time = "2026-06-13T18:52:45.983Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d4/24/a372aaf5c9b7208e7112038812994107bc65a84cd00e0354a88c2c77a617/pytest-9.0.3-py3-none-any.whl", hash = "sha256:2c5efc453d45394fdd706ade797c0a81091eccd1d6e4bccfcd476e2b8e0ab5d9", size = 375249, upload-time = "2026-04-07T17:16:16.13Z" },
+    { url = "https://files.pythonhosted.org/packages/8b/5a/ba30a81239b909821b3153e303e7def45178bf353da4f72380e6c5e8793b/pytest-9.1.0-py3-none-any.whl", hash = "sha256:8ebb0e7888bdf2bdfc602ec51f8f62d50200af37356c74e503c79a94f5c81f32", size = 386453, upload-time = "2026-06-13T18:52:44.045Z" },
 ]
 
 [[package]]

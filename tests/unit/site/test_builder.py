@@ -9,36 +9,52 @@ from dbdocs.site.builder import ReportBuilder
 
 
 class _FakeErd:
-    """Stands in for DbtErd(target="json"): get_erd() returns the json payload."""
+    """Stands in for DbtErd(target="json"): get_erd() returns the official payload."""
 
     def get_erd(self):
         return json.dumps(
             {
-                "tables": [
+                "nodes": [
                     {
+                        "id": "model.shop.customers",
                         "name": "customers",
                         "database": "db",
-                        "schema": "analytics",
+                        "schema_name": "analytics",
                         "resource_type": "model",
-                        "node_name": "model.shop.customers",
-                        "columns": [{"name": "id", "data_type": "int", "is_primary_key": True}],
+                        "columns": [
+                            {
+                                "name": "id",
+                                "data_type": "int",
+                                "is_primary_key": True,
+                                "is_foreign_key": True,
+                            }
+                        ],
                     },
                     {
+                        "id": "model.shop.stg_customers",
                         "name": "stg_customers",
                         "database": "db",
-                        "schema": "raw",
+                        "schema_name": "raw",
                         "resource_type": "model",
-                        "node_name": "model.shop.stg_customers",
-                        "columns": [{"name": "cust_id", "data_type": "int"}],
+                        "columns": [
+                            {
+                                "name": "cust_id",
+                                "data_type": "int",
+                                "is_primary_key": False,
+                                "is_foreign_key": False,
+                            }
+                        ],
                     },
                 ],
-                "relationships": [
+                "edges": [
                     {
-                        "name": "fk1",
-                        "type": "n1",
-                        "table_map": ["stg_customers", "customers"],
-                        "column_map": [["cust_id"], ["id"]],
-                        "relationship_label": "c_to_s",
+                        "id": "fk1",
+                        "from_id": "model.shop.customers",
+                        "to_id": "model.shop.stg_customers",
+                        "from_columns": ["id"],
+                        "to_columns": ["cust_id"],
+                        "label": "c_to_s",
+                        "cardinality": "n1",
                     }
                 ],
             }
@@ -208,12 +224,13 @@ def test_build_erd_data_parses_json_to_nodes_edges():
     by_id = {n["id"]: n for n in data["nodes"]}
     customers = by_id["model.shop.customers"]
     assert customers["label"] == "customers"
-    # `id` is the PK on customers and the FK target column.
+    # `id` is both the PK and the FK column on customers.
     pk = [c for c in customers["columns"] if c["is_primary_key"]]
     fk = [c for c in customers["columns"] if c["is_foreign_key"]]
     assert [c["name"] for c in pk] == ["id"]
     assert [c["name"] for c in fk] == ["id"]
     edge = data["edges"][0]
+    # source = to_id (parent/referenced side); target = from_id (FK/child side).
     assert edge["source"] == "model.shop.stg_customers"
     assert edge["target"] == "model.shop.customers"
 
@@ -221,9 +238,188 @@ def test_build_erd_data_parses_json_to_nodes_edges():
 def test_build_erd_data_empty_relationships():
     class _Empty:
         def get_erd(self):
-            return json.dumps({"tables": [], "relationships": []})
+            return json.dumps({"nodes": [], "edges": []})
 
     assert erd_mod.build_erd_data(_Empty()) == {"nodes": [], "edges": []}
+
+
+def test_backfill_fk_flags_skips_dangling_edge_and_empty_from_columns():
+    """_backfill_fk_flags must not crash on a dangling edge target or empty from_columns."""
+    node = {"id": "n1", "columns": [{"name": "col_a", "is_foreign_key": False}]}
+    # Dangling edge: target "n_missing" not in nodes list.
+    dangling = {"target": "n_missing", "from_columns": ["col_a"]}
+    # Edge with no from_columns: target exists but nothing to backfill.
+    no_cols = {"target": "n1", "from_columns": []}
+    erd_mod._backfill_fk_flags([node], [dangling, no_cols])
+    # Neither edge should have set is_foreign_key on node.col_a.
+    assert node["columns"][0]["is_foreign_key"] is False
+
+
+def test_build_erd_data_entity_name_format_resolves_edge_ids():
+    """Regression: when entity_name_format is set dbterd emits edge from_id/to_id
+    as the short name (e.g. ``orders``) while node id is the full unique_id
+    (e.g. ``model.jaffle_shop.orders``). build_erd_data must resolve those back
+    to the node id so source/target reference a valid node.
+
+    Also covers FK backfill: the orders.location_id column has is_foreign_key=False
+    in the raw node payload (dbterd model_contract quirk), but appears in the
+    edge from_columns → build_erd_data sets it to True."""
+
+    class _NameFormatErd:
+        def get_erd(self):
+            return json.dumps(
+                {
+                    "nodes": [
+                        {
+                            "id": "model.jaffle_shop.orders",
+                            "name": "orders",
+                            "database": "db",
+                            "schema_name": "main",
+                            "resource_type": "model",
+                            "columns": [
+                                {
+                                    "name": "order_id",
+                                    "data_type": "int",
+                                    "is_primary_key": True,
+                                    "is_foreign_key": False,
+                                },
+                                {
+                                    "name": "location_id",
+                                    "data_type": "int",
+                                    "is_primary_key": False,
+                                    "is_foreign_key": False,
+                                },
+                            ],
+                        },
+                        {
+                            "id": "model.jaffle_shop.locations",
+                            "name": "locations",
+                            "database": "db",
+                            "schema_name": "main",
+                            "resource_type": "model",
+                            "columns": [
+                                {
+                                    "name": "id",
+                                    "data_type": "int",
+                                    "is_primary_key": True,
+                                    "is_foreign_key": False,
+                                }
+                            ],
+                        },
+                    ],
+                    "edges": [
+                        {
+                            "id": "fk_loc",
+                            "from_id": "orders",
+                            "to_id": "locations",
+                            "from_columns": ["location_id"],
+                            "to_columns": ["id"],
+                            "label": "",
+                            "cardinality": "n1",
+                        }
+                    ],
+                }
+            )
+
+    data = erd_mod.build_erd_data(_NameFormatErd())
+    node_ids = {n["id"] for n in data["nodes"]}
+    assert node_ids == {"model.jaffle_shop.orders", "model.jaffle_shop.locations"}
+    edge = data["edges"][0]
+    # source = parent (to_id → locations), target = child (from_id → orders)
+    assert edge["source"] == "model.jaffle_shop.locations"
+    assert edge["target"] == "model.jaffle_shop.orders"
+    # FK backfill: orders.location_id was not_fk in raw payload but is in from_columns.
+    orders = next(n for n in data["nodes"] if n["id"] == "model.jaffle_shop.orders")
+    by_name = {c["name"]: c for c in orders["columns"]}
+    assert by_name["location_id"]["is_foreign_key"] is True
+    assert by_name["order_id"]["is_foreign_key"] is False  # not in any from_columns
+    # Referenced side (locations.id) is not backfilled as FK.
+    locations = next(n for n in data["nodes"] if n["id"] == "model.jaffle_shop.locations")
+    assert locations["columns"][0]["is_foreign_key"] is False
+
+
+def test_build_erd_data_node_without_name_skipped_in_name_map():
+    """A node with no ``name`` field is skipped when building the name→id map."""
+
+    class _NoNameErd:
+        def get_erd(self):
+            return json.dumps(
+                {
+                    "nodes": [
+                        {
+                            "id": "model.shop.a",
+                            "database": "db",
+                            "schema_name": "s",
+                            "resource_type": "model",
+                            "columns": [],
+                        },
+                    ],
+                    "edges": [],
+                }
+            )
+
+    data = erd_mod.build_erd_data(_NoNameErd())
+    assert len(data["nodes"]) == 1
+    assert data["nodes"][0]["label"] == ""
+
+
+def test_build_erd_data_ambiguous_entity_name_left_unresolved():
+    """Two nodes sharing the same formatted name produce an ambiguous entry.
+
+    _resolve_edge_id must leave the raw short name intact rather than binding
+    it to an arbitrary node — fail-honest, not fail-wrong.
+    """
+
+    class _AmbiguousErd:
+        def get_erd(self):
+            return json.dumps(
+                {
+                    "nodes": [
+                        {
+                            "id": "model.pkg_a.orders",
+                            "name": "orders",
+                            "database": "db",
+                            "schema_name": "a",
+                            "resource_type": "model",
+                            "columns": [],
+                        },
+                        {
+                            "id": "model.pkg_b.orders",
+                            "name": "orders",
+                            "database": "db",
+                            "schema_name": "b",
+                            "resource_type": "model",
+                            "columns": [],
+                        },
+                        {
+                            "id": "model.pkg_a.customers",
+                            "name": "customers",
+                            "database": "db",
+                            "schema_name": "a",
+                            "resource_type": "model",
+                            "columns": [],
+                        },
+                    ],
+                    "edges": [
+                        {
+                            "id": "fk_ambig",
+                            "from_id": "orders",
+                            "to_id": "customers",
+                            "from_columns": [],
+                            "to_columns": [],
+                            "label": "",
+                            "cardinality": "n1",
+                        }
+                    ],
+                }
+            )
+
+    data = erd_mod.build_erd_data(_AmbiguousErd())
+    edge = data["edges"][0]
+    # "customers" is unambiguous → resolves to the full unique_id.
+    assert edge["source"] == "model.pkg_a.customers"
+    # "orders" is ambiguous (two nodes share that name) → stays as the raw short name.
+    assert edge["target"] == "orders"
 
 
 def test_build_erd_forwards_options_and_forces_json(monkeypatch):

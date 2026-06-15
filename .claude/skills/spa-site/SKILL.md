@@ -95,10 +95,9 @@ SPA loads (via `data.js`, which fetches `dbdocs-data.json.gz` and exposes it on
   entities with their columns (`is_primary_key` / `is_foreign_key` flags),
   `edges` are foreign-key relationships — all keyed by dbt `unique_id`. Built by
   `dbdocs/extract/erd.py` (`build_erd` / `build_erd_data`), which runs dbterd's
-  `json` target — a custom `@register_target("json")` adapter in
-  `dbdocs/extract/erd_json.py` that emits `{tables, relationships}`. The React
-  Flow bundle derives all three graph surfaces (full DAG, global ERD, per-node
-  ERD) from `lineage` + `erd`.
+  built-in `json` target (dbterd ≥ 1.28.0; emits `{nodes, edges, metadata}`).
+  The React Flow bundle derives all three graph surfaces (full DAG, global ERD,
+  per-node ERD) from `lineage` + `erd`.
 
 ## Payload (external gzip — `dbdocs/site/inject.py` + `builder.generate`)
 
