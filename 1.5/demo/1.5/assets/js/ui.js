@@ -1,0 +1,1005 @@
+/* dbdocs SPA — tier 3: ui.
+
+   DOM only. Renders the catalog, per-node pages, nav, search, theme and version
+   switcher. Reads derived values from the service tier; never inspects the raw
+   DATA shape directly. Graphs (lineage DAG + ERDs) are rendered by the React
+   Flow bundle exposed as window.dbdocsGraph. No build step. */
+
+import * as svc from "./service.js";
+
+var app = null;
+var sidebar = null;
+var mountedGraph = null;
+
+function el(tag, attrs, children) {
+  var node = document.createElement(tag);
+  if (attrs) Object.keys(attrs).forEach(function (k) {
+    if (k === "class") node.className = attrs[k];
+    else if (k === "html") node.innerHTML = attrs[k];
+    else if (k === "text") node.textContent = attrs[k];
+    else if (k.slice(0, 2) === "on" && typeof attrs[k] === "function") node.addEventListener(k.slice(2), attrs[k]);
+    else if (attrs[k] != null) node.setAttribute(k, attrs[k]);
+  });
+  (children || []).forEach(function (c) { if (c != null) node.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
+  return node;
+}
+function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+
+/* Icon names that have a dedicated glyph in assets/css/icons.css. Used to decide
+   whether a resource-type has its own icon or falls back to the generic one. */
+var KNOWN_ICONS = {
+  catalog: 1, dag: 1, database: 1, schema: 1, graph: 1, model: 1, source: 1,
+  seed: 1, snapshot: 1, test: 1, unit_test: 1, metric: 1, semantic_model: 1,
+  exposure: 1, saved_query: 1, operation: 1, fullscreen: 1, link: 1, health: 1,
+};
+/* Icons are CSS masks (Lucide glyphs, see assets/css/icons.css) — class-driven,
+   themeable, no inline SVG. `size` sets the box via font-size (the mask is 1em). */
+function icon(name, size) {
+  return el("span", { class: "ic ic--" + name, style: "font-size:" + (size || 16) + "px" });
+}
+
+function unmountGraph() {
+  if (mountedGraph && window.dbdocsGraph) {
+    try { window.dbdocsGraph.unmount(mountedGraph); } catch (e) { /* ignore */ }
+  }
+  mountedGraph = null;
+}
+
+function graphMount(mode, focus, rtype, schema, erdFocus, erdSchema) {
+  var root = el("div", { class: "graph-host", id: "graph-root", "data-mode": mode });
+  if (focus) root.setAttribute("data-focus", focus);
+  if (rtype) root.setAttribute("data-rtype", rtype);
+  if (schema) root.setAttribute("data-schema", schema);
+  if (erdFocus) root.setAttribute("data-erd-focus", erdFocus);
+  if (erdSchema) root.setAttribute("data-erd-schema", erdSchema);
+  setTimeout(function () {
+    if (window.dbdocsGraph) { mountedGraph = root; window.dbdocsGraph.mount(root); }
+    else root.appendChild(el("p", { class: "empty" }, ["Graph bundle not loaded."]));
+  }, 0);
+  return root;
+}
+
+function copyLinkButton() {
+  var btn = el("button", { class: "fs-btn copy-link-btn", type: "button", title: "Copy link to this page" });
+  btn.appendChild(icon("link", 15));
+  btn.appendChild(document.createTextNode(" Copy link"));
+  // Flash a transient label (and the .copied accent on success), then reset.
+  function flash(label, ok) {
+    btn.lastChild.textContent = label;
+    btn.classList.toggle("copied", !!ok);
+    setTimeout(function () {
+      if (btn.lastChild) btn.lastChild.textContent = " Copy link";
+      btn.classList.remove("copied");
+    }, 1800);
+  }
+  btn.addEventListener("click", function () {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(location.href).then(function () {
+        flash(" Copied!", true);
+      }).catch(function () {
+        flash(" Copy unavailable", false);
+      });
+    } else {
+      flash(" Copy unavailable", false);
+    }
+  });
+  return btn;
+}
+
+export function route() {
+  unmountGraph();
+  var r = svc.parseHash(location.hash);
+  if (r.view === "node" && r.id && svc.node(r.id)) renderNode(svc.node(r.id));
+  else if (r.view === "dag") renderDag(r.query.focus, r.query.rtype, r.query.schema);
+  else if (r.view === "health") renderHealth(r.query.d);
+  else renderOverview(r.query.erd_focus, r.query.erd_schema);
+  if (r.view !== "dag") app.appendChild(contentFooter());
+  highlightNav(r);
+  app.focus();
+  app.scrollTop = 0;
+  if (r.view === "node" && r.query.col) focusColumn(r.query.col);
+}
+
+/* Scroll to + briefly highlight a column row (deep-linked from an upstream
+   column-lineage chip). Runs after route()'s scrollTop reset. */
+function focusColumn(column) {
+  var row = app.querySelector('tr[data-col="' + (window.CSS && CSS.escape ? CSS.escape(String(column).toLowerCase()) : String(column).toLowerCase()) + '"]');
+  if (!row) return;
+  row.scrollIntoView({ block: "center" });
+  // Move keyboard focus to the row so the deep link lands a keyboard user on the
+  // target, not stranded on the chip they followed. tabindex=-1 = programmatic
+  // focus only (not in the tab order).
+  row.setAttribute("tabindex", "-1");
+  row.focus({ preventScroll: true });
+  row.classList.add("col-flash");
+  setTimeout(function () { row.classList.remove("col-flash"); }, 1600);
+}
+
+function contentFooter() {
+  var foot = el("div", { class: "content-foot" });
+  var left = el("span", { class: "cf-left" }, [
+    icon("catalog", 14),
+    el("span", {}, ["Generated by "]),
+    el("a", { href: "https://github.com/datnguye/dbt-docs", target: "_blank", rel: "noopener" }, ["dbdocs"]),
+  ]);
+  var meta = svc.footerMeta();
+  if (meta) left.appendChild(el("span", { class: "cf-meta" }, [" · " + meta]));
+  var right = el("a", { class: "cf-top", href: "#", onclick: function (e) { e.preventDefault(); app.scrollTop = 0; } }, ["↑ Back to top"]);
+  foot.appendChild(left);
+  foot.appendChild(right);
+  return foot;
+}
+
+export function buildNav() {
+  clear(sidebar);
+  sidebar.appendChild(el("a", { class: "nav-cta", href: "#/overview", "data-nav": "overview" }, [icon("catalog"), "Catalog overview"]));
+  sidebar.appendChild(el("a", { class: "nav-cta", href: "#/dag", "data-nav": "dag" }, [icon("dag"), "Lineage / DAG"]));
+  if (svc.healthEnabled()) {
+    sidebar.appendChild(el("a", { class: "nav-cta", href: "#/health", "data-nav": "health" }, [icon("health"), "Health Check"]));
+  }
+
+  // Tree filter — matches a table name or database.schema.table.
+  var filter = el("input", {
+    class: "nav-filter", type: "search", id: "nav-filter",
+    placeholder: "Filter tables…", autocomplete: "off",
+  });
+  filter.addEventListener("input", function () { filterTree(filter.value); });
+  sidebar.appendChild(filter);
+
+  var TREE = svc.tree();
+  var NODES = svc.nodes();
+  Object.keys(TREE).forEach(function (db) {
+    var dbDetails = el("details", { class: "nav-section nav-db", open: "" }, [
+      el("summary", {}, [icon("database"), el("span", {}, [db])]),
+    ]);
+    Object.keys(TREE[db]).forEach(function (schema) {
+      var ids = svc.sortedNodeIds(TREE[db][schema]);
+      var items = el("ul", { class: "nav-items" }, ids.map(function (id) {
+        var n = NODES[id];
+        return el("li", { "data-filter": svc.treeFilterText(id) }, [el("a", { href: "#/node/" + encodeURIComponent(id), "data-node": id }, [
+          el("span", { class: "dot " + n.resource_type }), n.label,
+        ])]);
+      }));
+      var schemaDetails = el("details", { class: "nav-section nav-schema", open: "" }, [
+        el("summary", {}, [icon("schema"), el("span", {}, [schema])]), items,
+      ]);
+      dbDetails.appendChild(schemaDetails);
+    });
+    sidebar.appendChild(dbDetails);
+  });
+}
+
+/* Filter the sidebar tree to items whose database.schema.table (or table name)
+   contains *query*. Empty query restores everything. Schema/db sections with no
+   visible item are hidden + force-opened while filtering so matches are seen. */
+function filterTree(query) {
+  var q = String(query || "").trim().toLowerCase();
+  sidebar.querySelectorAll(".nav-db").forEach(function (db) {
+    var dbHas = false;
+    db.querySelectorAll(".nav-schema").forEach(function (sc) {
+      var scHas = false;
+      sc.querySelectorAll("li[data-filter]").forEach(function (li) {
+        var match = !q || li.getAttribute("data-filter").indexOf(q) !== -1;
+        li.hidden = !match;
+        if (match) scHas = true;
+      });
+      sc.hidden = !scHas;
+      if (q && scHas) sc.open = true;
+      if (scHas) dbHas = true;
+    });
+    db.hidden = !dbHas;
+    if (q && dbHas) db.open = true;
+  });
+}
+
+function highlightNav(r) {
+  sidebar.querySelectorAll("[data-node], [data-nav]").forEach(function (a) { a.classList.remove("active"); });
+  if (r.view === "node" && r.id) {
+    var a = sidebar.querySelector('[data-node="' + (window.CSS && CSS.escape ? CSS.escape(r.id) : r.id) + '"]');
+    if (a) a.classList.add("active");
+  } else {
+    var navKey = r.view === "dag" ? "dag" : r.view === "health" ? "health" : "overview";
+    var nav = sidebar.querySelector('[data-nav="' + navKey + '"]');
+    if (nav) nav.classList.add("active");
+  }
+}
+
+function renderOverview(erdFocus, erdSchema) {
+  clear(app);
+  var META = svc.meta();
+  app.appendChild(el("h1", {}, [META.project_name || "dbt docs"]));
+  if (META.site_description) app.appendChild(el("p", { class: "description", html: svc.mdInline(META.site_description) }, []));
+
+  app.appendChild(el("div", { class: "cards" }, resourceCards(svc.counts())));
+
+  if (svc.healthEnabled()) app.appendChild(healthSummaryCard());
+
+  var erdHost = graphMount("erd", null, null, null, erdFocus || "", erdSchema || "");
+  var fsBtn = el("button", {
+    class: "fs-btn", type: "button", title: "Toggle full screen",
+    onclick: function () { toggleFullscreen(erdHost); },
+  }, [icon("fullscreen", 15), " Full screen"]);
+  var erdHeader = el("div", { class: "page-head" }, [
+    el("h2", {}, ["Entity-relationship diagram"]),
+    el("div", { class: "page-head-actions" }, [fsBtn]),
+  ]);
+  app.appendChild(erdHeader);
+  app.appendChild(erdHost);
+
+  var README = svc.readme();
+  if (README) app.appendChild(renderReadme(README));
+}
+
+/* Status pills for a health summary. pass/warn/fail always show; error/skipped
+   only when non-zero (a clean run stays uncluttered); total comes last. Showing
+   skipped/error is what makes the band reconcile — otherwise e.g. 16 pass + 1
+   fail wouldn't visibly add up to "29 total" when 12 are skipped. */
+function healthPills(summary, extraClass) {
+  var pills = [
+    el("span", { class: "health-pill pass" }, [String(summary.pass || 0) + " pass"]),
+    el("span", { class: "health-pill warn" }, [String(summary.warn || 0) + " warn"]),
+    el("span", { class: "health-pill fail" }, [String(summary.fail || 0) + " fail"]),
+  ];
+  if (summary.error) pills.push(el("span", { class: "health-pill error" }, [String(summary.error) + " error"]));
+  if (summary.skipped) pills.push(el("span", { class: "health-pill skipped" }, [String(summary.skipped) + " skipped"]));
+  pills.push(el("span", { class: "health-pill total" }, [String(summary.total || 0) + " total"]));
+  return el("div", { class: "health-pills" + (extraClass ? " " + extraClass : "") }, pills);
+}
+
+/* Human labels + descriptions for the six dimensions (testing first). */
+var HEALTH_DIM_LABELS = {
+  testing: "Testing",
+  documentation: "Documentation",
+  modeling: "Modeling",
+  structure: "Structure",
+  performance: "Performance",
+  governance: "Governance",
+};
+var HEALTH_DIM_DESC = {
+  testing: "Data-test coverage and primary-key tests",
+  documentation: "Model and source descriptions",
+  modeling: "DAG shape and layering best practices",
+  structure: "Naming conventions and directory layout",
+  performance: "Materializations and view chains",
+  governance: "Contracts and model access",
+};
+
+/* Title-case any underscored key for display — a dimension, category, or rule
+   name (business_logic → "Business logic", model_fanout → "Model fanout"). */
+function healthLabel(cat) {
+  var words = String(cat).replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/* score → a rating class for color (good / warn / bad). */
+function healthScoreClass(score) {
+  if (score >= 90) return "good";
+  if (score >= 70) return "warn";
+  return "bad";
+}
+
+/* The compact overview card: headline issue count + a mini scorecard linking in. */
+function healthSummaryCard() {
+  var total = svc.healthTotalIssues();
+  var dims = svc.healthDimensions();
+  var section = el("section", { class: "health-card" });
+  section.appendChild(el("div", { class: "health-card-head" }, [
+    el("h2", { class: "health-card-title" }, ["Health Check"]),
+    el("a", { class: "health-card-link", href: "#/health" }, ["View all findings →"]),
+  ]));
+  section.appendChild(el("p", { class: "muted health-card-sub" }, [
+    total === 0 ? "No issues detected." : String(total) + " issue" + (total !== 1 ? "s" : "") + " across " + dims.length + " dimensions.",
+  ]));
+  section.appendChild(healthScorecard(true, dims));
+  return section;
+}
+
+/* The scorecard: one chip per dimension with its score% + issue count. When
+   *compact* the chips link to the dimension's section on the Health page.
+   *dims* may be passed to avoid recomputing the dimension list. */
+function healthScorecard(compact, dims) {
+  var chips = (dims || svc.healthDimensions()).map(function (d) {
+    // Dimension name on top, then the score %, then the issue count.
+    var children = [
+      el("span", { class: "score-name" }, [HEALTH_DIM_LABELS[d.key] || healthLabel(d.key)]),
+      el("span", { class: "score-num" }, [String(d.score), el("span", { class: "score-pct" }, ["%"])]),
+      el("span", { class: "score-issues muted" }, [d.issues === 0 ? "clear" : String(d.issues) + " issue" + (d.issues !== 1 ? "s" : "")]),
+    ];
+    var attrs = { class: "score-chip " + healthScoreClass(d.score) };
+    // On the overview card, each chip deep-links to its dimension's section.
+    if (compact) { attrs.href = "#/health?d=" + encodeURIComponent(d.key); return el("a", attrs, children); }
+    return el("div", attrs, children);
+  });
+  return el("div", { class: "health-scorecard" }, chips);
+}
+
+/* Health Check page — scorecard + one collapsible section per dimension. When
+   *focusDim* is set (deep-linked from a scorecard chip) that section is forced
+   open and scrolled into view. */
+function renderHealth(focusDim) {
+  clear(app);
+  var header = el("div", { class: "page-head" }, [
+    el("h1", {}, ["Health Check"]),
+    el("div", { class: "page-head-actions" }, [copyLinkButton()]),
+  ]);
+  app.appendChild(header);
+  app.appendChild(el("p", { class: "description" }, [
+    "Project health across the six ",
+    el("a", { href: "https://dbt-labs.github.io/dbt-project-evaluator/", target: "_blank", rel: "noopener" }, ["dbt-project-evaluator"]),
+    " dimensions, derived from your dbt artifacts.",
+  ]));
+
+  app.appendChild(healthScorecard(false));
+
+  var note = svc.healthNote();
+  if (note) app.appendChild(el("p", { class: "empty health-note" }, [note]));
+
+  svc.healthDimensions().forEach(function (d) {
+    app.appendChild(healthDimensionSection(d, focusDim));
+  });
+
+  // Scroll the deep-linked section into view (after layout settles) and move
+  // keyboard focus to its <summary> — the operable part of the <details> — so a
+  // keyboard user lands on the section, not on the scorecard chip they followed.
+  if (focusDim) {
+    var target = document.getElementById("health-" + focusDim);
+    if (target) setTimeout(function () {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      var head = target.querySelector("summary");
+      if (head) head.focus({ preventScroll: true });
+    }, 0);
+  }
+}
+
+/* One collapsible dimension: a native <details> (open when it has issues, or when
+   it's the deep-linked *focusDim*) whose findings are grouped by rule. */
+function healthDimensionSection(d, focusDim) {
+  var label = HEALTH_DIM_LABELS[d.key] || healthLabel(d.key);
+  var summary = el("summary", { class: "health-section-head" }, [
+    el("span", { class: "score-pill " + healthScoreClass(d.score) }, [String(d.score) + "%"]),
+    el("span", { class: "health-section-title" }, [label]),
+    el("span", { class: "health-cat-count muted" }, [
+      d.issues === 0 ? " — no issues" : " — " + d.issues + " issue" + (d.issues !== 1 ? "s" : ""),
+    ]),
+  ]);
+  var body = el("div", { class: "health-section-body" });
+  body.appendChild(el("p", { class: "muted" }, [HEALTH_DIM_DESC[d.key] || ""]));
+
+  if (!d.findings.length) {
+    body.appendChild(el("p", { class: "empty" }, ["No issues detected in this dimension."]));
+  } else {
+    groupBy(d.findings, "rule").forEach(function (group) {
+      body.appendChild(healthRuleBlock(group.key, group.items));
+    });
+  }
+
+  // Open by default when there's something to act on, or when deep-linked.
+  var attrs = { class: "health-section", id: "health-" + d.key };
+  if (d.issues > 0 || d.key === focusDim) attrs.open = "";
+  return el("details", attrs, [summary, body]);
+}
+
+/* A rule's findings as a small table: the rule name + its flagged nodes. */
+function healthRuleBlock(rule, items) {
+  var rows = items.map(function (f) {
+    return el("tr", {}, [
+      el("td", {}, [healthNodeCell(f.node)]),
+      el("td", {}, [f.message ? el("span", {}, [f.message]) : el("span", { class: "muted" }, ["—"])]),
+    ]);
+  });
+  var head = el("div", { class: "health-rule-head" }, [
+    el("code", { class: "health-rule-name" }, [healthLabel(rule)]),
+    el("span", { class: "health-cat-count muted" }, [" (" + items.length + ")"]),
+    items[0] && items[0].docs_url ? el("a", { class: "health-rule-docs muted", href: items[0].docs_url, target: "_blank", rel: "noopener" }, ["docs"]) : null,
+  ]);
+  return el("div", { class: "health-rule" }, [
+    head,
+    el("table", {}, [
+      el("thead", {}, [el("tr", {}, [th("Node"), th("Detail")])]),
+      el("tbody", {}, rows),
+    ]),
+  ]);
+}
+
+/* A finding's node as a deep-link to its node page when resolvable, else code. */
+function healthNodeCell(nodeId) {
+  var short = svc.shortName(nodeId);
+  if (svc.nodeOrNull(nodeId)) {
+    return el("a", { href: "#/node/" + encodeURIComponent(nodeId), title: nodeId }, [short]);
+  }
+  return el("code", { title: nodeId }, [short]);
+}
+
+/* The dbt test results for one model, rendered on its node page: a status-pill
+   summary plus a "Data tests" table and a "Unit tests" table (each shown only
+   when present). Returns null when the model has no tests / run_results absent. */
+function nodeTestResults(n) {
+  var tr = svc.testResultsForNode(n.id);
+  if (!tr) return null;
+  var section = el("section", { class: "node-tests" });
+  section.appendChild(el("h2", {}, ["Tests"]));
+  section.appendChild(healthPills(tr.summary));
+  if (tr.data.length) {
+    section.appendChild(el("h3", {}, ["Data tests"]));
+    section.appendChild(dataTestTable(tr.data));
+  }
+  if (tr.unit.length) {
+    section.appendChild(el("h3", {}, ["Unit tests"]));
+    section.appendChild(unitTestTable(tr.unit));
+  }
+  return section;
+}
+
+/* A data-test table: test type, tested column, status, failures, message. */
+function dataTestTable(tests) {
+  var rows = tests.map(function (f) {
+    return el("tr", {}, [
+      el("td", {}, [el("code", {}, [f.test_type || "custom"])]),
+      el("td", {}, [f.column ? el("code", {}, [f.column]) : el("span", { class: "muted" }, ["—"])]),
+      el("td", {}, [statusBadge(f.status)]),
+      el("td", { class: "muted" }, [String(f.failures || 0)]),
+      el("td", {}, [f.message ? el("span", {}, [f.message]) : el("span", { class: "muted" }, ["—"])]),
+    ]);
+  });
+  return el("table", {}, [
+    el("thead", {}, [el("tr", {}, [th("Test"), th("Column"), th("Status"), th("Failures"), th("Message")])]),
+    el("tbody", {}, rows),
+  ]);
+}
+
+/* A unit-test table: the unit test name, status, message (no column concept). */
+function unitTestTable(tests) {
+  var rows = tests.map(function (f) {
+    return el("tr", {}, [
+      el("td", {}, [el("code", {}, [f.rule])]),
+      el("td", {}, [statusBadge(f.status)]),
+      el("td", {}, [f.message ? el("span", {}, [f.message]) : el("span", { class: "muted" }, ["—"])]),
+    ]);
+  });
+  return el("table", {}, [
+    el("thead", {}, [el("tr", {}, [th("Unit test"), th("Status"), th("Message")])]),
+    el("tbody", {}, rows),
+  ]);
+}
+
+function statusBadge(status) {
+  var cls = "badge health-status ";
+  if (status === "pass") cls += "health-pass";
+  else if (status === "warn") cls += "health-warn";
+  else if (status === "fail") cls += "health-fail";
+  else if (status === "error") cls += "health-error";
+  else cls += "health-skip";
+  return el("span", { class: cls }, [status]);
+}
+
+/* Group a list of objects by a string key, preserving first-seen order.
+   Returns [{key, items}]. */
+function groupBy(items, prop) {
+  var order = [];
+  var map = {};
+  items.forEach(function (it) {
+    var k = it[prop];
+    if (!map[k]) { map[k] = []; order.push(k); }
+    map[k].push(it);
+  });
+  return order.map(function (k) { return { key: k, items: map[k] }; });
+}
+
+function renderReadme(md) {
+  var box = el("section", { class: "readme" });
+  var body = el("div", { class: "markdown-body" });
+  try {
+    body.innerHTML = marked.parse(md, { breaks: false, gfm: true });
+  } catch (e) {
+    body.appendChild(el("pre", { class: "code" }, [md]));
+  }
+  // README paths are relative to the repo, not the docs site. Rewrite relative
+  // image/link URLs to absolute GitHub URLs (raw for images, blob for links)
+  // so they don't 404, and open external links in a new tab.
+  body.querySelectorAll("img[src]").forEach(function (img) {
+    img.src = svc.repoUrl(img.getAttribute("src"), "raw") || img.src;
+  });
+  body.querySelectorAll("a[href]").forEach(function (a) {
+    var fixed = svc.repoUrl(a.getAttribute("href"), "blob");
+    if (fixed) a.setAttribute("href", fixed);
+    if (/^https?:/.test(a.getAttribute("href") || "")) { a.target = "_blank"; a.rel = "noopener"; }
+  });
+  box.appendChild(body);
+  return box;
+}
+
+function resourceCards(counts) {
+  return svc.cardTypes(counts).map(function (t) { return card(counts[t], svc.pluralize(t), t); });
+}
+function card(num, lbl, rtype) {
+  var ic = icon(KNOWN_ICONS[rtype] ? rtype : "graph", 18);
+  ic.classList.add("card-ic", rtype);
+  var head = el("div", { class: "card-head" }, [ic, el("div", { class: "num" }, [String(num)])]);
+  return el("div", { class: "card" }, [head, el("div", { class: "lbl" }, [lbl])]);
+}
+
+function renderNode(n) {
+  clear(app);
+  app.appendChild(el("h1", {}, [n.label, " ", el("span", { class: "page-id" }, ["`" + n.resource_type + "`"])]));
+  app.appendChild(el("div", { class: "page-id" }, [n.id]));
+
+  var badges = el("div", { class: "badges" }, [el("span", { class: "badge rtype " + n.resource_type }, [n.resource_type])]);
+  if (n.relation_name) badges.appendChild(el("span", { class: "badge" }, ["⌗ " + n.relation_name]));
+  (n.tags || []).forEach(function (t) { badges.appendChild(el("span", { class: "badge tag" }, ["#" + t])); });
+  var viewDag = el("a", { class: "badge", href: "#/dag?focus=" + encodeURIComponent(n.id) });
+  viewDag.appendChild(icon("graph")); viewDag.appendChild(document.createTextNode(" View in DAG"));
+  badges.appendChild(viewDag);
+  badges.appendChild(copyLinkButton());
+  app.appendChild(badges);
+
+  app.appendChild(n.description
+    ? el("p", { class: "description", html: svc.mdInline(n.description) }, [])
+    : el("p", { class: "description muted" }, ["No description provided."]));
+
+  /* Columns — with inline upstream-lineage and downstream-impact columns. */
+  var colLin = svc.columnLineageMap(n.id);
+  var dnLin = svc.downstreamMap(n.id);
+  app.appendChild(el("h2", {}, ["Columns"]));
+  if (n.columns && n.columns.length) {
+    var rows = n.columns.map(function (c) {
+      return el("tr", { "data-col": String(c.name).toLowerCase() }, [
+        el("td", {}, [el("code", {}, [c.name])]),
+        el("td", { class: "muted" }, [c.type || ""]),
+        el("td", {}, (c.tags || []).map(function (t) { return el("span", { class: "badge tag" }, ["#" + t]); })),
+        el("td", { html: String(c.description || "") }, []),
+        el("td", {}, upstreamChips(colLin[String(c.name).toLowerCase()])),
+        el("td", {}, downstreamChips(dnLin[String(c.name).toLowerCase()])),
+      ]);
+    });
+    app.appendChild(el("table", {}, [
+      el("thead", {}, [el("tr", {}, [th("Column"), th("Type"), th("Tags"), th("Description"), th("Upstream lineage"), th("Downstream impact")])]),
+      el("tbody", {}, rows),
+    ]));
+  } else {
+    app.appendChild(el("p", { class: "empty" }, ["No columns found in the catalog for this entity."]));
+  }
+
+  /* Tests — this model's dbt test results (from run_results.json), if any. */
+  var tests = nodeTestResults(n);
+  if (tests) app.appendChild(tests);
+
+  /* Related ERD — before the transformation logic. */
+  var erdNodeHost = graphMount("erd-node", n.id);
+  var erdNodeFs = el("button", {
+    class: "fs-btn", type: "button", title: "Toggle full screen",
+    onclick: function () { toggleFullscreen(erdNodeHost); },
+  }, [icon("fullscreen", 15), " Full screen"]);
+  app.appendChild(el("div", { class: "page-head" }, [
+    el("h2", {}, ["Related ERD"]),
+    el("div", { class: "page-head-actions" }, [erdNodeFs]),
+  ]));
+  app.appendChild(erdNodeHost);
+
+  /* Transformation logic. */
+  if (n.compiled_code || n.raw_code) {
+    app.appendChild(el("h2", {}, ["Transformation logic"]));
+    app.appendChild(codeTabs(n));
+    if (n.macros && n.macros.length) {
+      app.appendChild(el("h2", {}, ["Macros used"]));
+      n.macros.forEach(function (m) {
+        app.appendChild(el("details", { class: "macro" }, [
+          el("summary", {}, [m.name + (m.package ? "  (" + m.package + ")" : "")]),
+          el("pre", { class: "code" }, [m.sql || ""]),
+        ]));
+      });
+    }
+  }
+}
+function th(t) { return el("th", {}, [t]); }
+
+function upstreamChips(upstream) {
+  if (!upstream || !upstream.length) return [el("span", { class: "muted" }, ["—"])];
+  var NODES = svc.nodes();
+  return upstream.map(function (u) {
+    var label = NODES[u.node] ? NODES[u.node].label : svc.shortName(u.node);
+    // Link the column (the lineage target the user cares about); the model
+    // name is plain context. The href still deep-links to the upstream node.
+    return el("span", { class: "up-chip" }, [
+      el("span", { class: "up-model" }, [label + "."]),
+      el("a", {
+        href: "#/node/" + encodeURIComponent(u.node) + "?col=" + encodeURIComponent(u.column),
+        title: u.node,
+      }, [u.column]),
+    ]);
+  });
+}
+
+function downstreamChips(downstream) {
+  if (!downstream || !downstream.length) return [el("span", { class: "muted" }, ["—"])];
+  var NODES = svc.nodes();
+  return downstream.map(function (u) {
+    var label = NODES[u.node] ? NODES[u.node].label : svc.shortName(u.node);
+    // Deep-link to the dependent (downstream) node's column so the user can
+    // follow the impact chain forward. The model name is plain context.
+    return el("span", { class: "up-chip" }, [
+      el("span", { class: "up-model" }, [label + "."]),
+      el("a", {
+        href: "#/node/" + encodeURIComponent(u.node) + "?col=" + encodeURIComponent(u.column),
+        title: u.node,
+      }, [u.column]),
+    ]);
+  });
+}
+
+function codeTabs(n) {
+  var wrap = el("div", {});
+  var tabs = el("div", { class: "tabs" });
+  var panels = el("div", {});
+  var defs = [];
+  if (n.compiled_code) defs.push({ label: "Compiled SQL", code: n.compiled_code });
+  if (n.raw_code) defs.push({ label: "Source", code: n.raw_code });
+  defs.forEach(function (d, i) {
+    var panel = el("div", { class: "tab-panel" + (i === 0 ? " active" : "") }, [el("pre", { class: "code" }, [d.code])]);
+    var tab = el("div", { class: "tab" + (i === 0 ? " active" : ""), onclick: function () {
+      tabs.querySelectorAll(".tab").forEach(function (t) { t.classList.remove("active"); });
+      panels.querySelectorAll(".tab-panel").forEach(function (p) { p.classList.remove("active"); });
+      tab.classList.add("active"); panel.classList.add("active");
+    } }, [d.label]);
+    tabs.appendChild(tab); panels.appendChild(panel);
+  });
+  wrap.appendChild(tabs); wrap.appendChild(panels);
+  return wrap;
+}
+
+function renderDag(focusId, rtype, schema) {
+  clear(app);
+  var resolvedFocus = focusId && svc.node(focusId) ? focusId : null;
+  var host = graphMount("dag", resolvedFocus, rtype || "", schema || "");
+  var fsBtn = el("button", {
+    class: "fs-btn", type: "button", title: "Toggle full screen",
+    onclick: function () { toggleFullscreen(host); },
+  }, [icon("fullscreen", 15), " Full screen"]);
+  var header = el("div", { class: "page-head" }, [
+    el("h1", {}, ["Lineage / DAG"]),
+    el("div", { class: "page-head-actions" }, [copyLinkButton(), fsBtn]),
+  ]);
+  app.appendChild(header);
+  app.appendChild(host);
+}
+
+function toggleFullscreen(host) {
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+  } else if (host.requestFullscreen) {
+    host.requestFullscreen().catch(function () { /* denied — ignore */ });
+  }
+}
+
+var SEARCH_RESULT_CAP = 12;
+
+function buildSearch() {
+  var input = document.getElementById("search");
+  var results = document.getElementById("search-results");
+  var status = document.getElementById("search-status");
+  if (typeof MiniSearch === "undefined") return;
+  var docs = svc.searchDocs();
+  var mini = new MiniSearch({
+    fields: svc.SEARCH_FIELDS.map(function (f) { return f.key; }),
+    storeFields: ["label", "resource_type", "schema"],
+    // Names/columns/tags expand fuzzily + by prefix so a half-typed model name
+    // still hits. The bulk text fields (description, column docs, SQL) match only
+    // on whole terms and at a low weight — otherwise a generic SQL keyword like
+    // "unique" fuzzy-floods nearly every model. boost ranks name/column hits well
+    // above an incidental SQL-body hit so the title results stay on top.
+    searchOptions: {
+      prefix: true,
+      fuzzy: 0.2,
+      boost: { label: 6, name: 6, columns: 3, tags: 2, relation: 2, description: 1, columnDescriptions: 1, code: 0.4 },
+    },
+  });
+  mini.addAll(docs);
+
+  // Build the matched-field snippet (mkdocs-material style): a label for the
+  // field that matched + the excerpt, with the matched terms wrapped in <mark>.
+  // Highlighting is done by splitting on the matched terms and building text +
+  // <mark> nodes (no innerHTML) so user-derived text can never inject markup.
+  function highlightNodes(text, terms) {
+    var safe = (terms || []).map(function (t) { return String(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }).filter(Boolean);
+    if (!safe.length) return [text];
+    var re = new RegExp("(" + safe.join("|") + ")", "ig");
+    return String(text).split(re).map(function (piece, i) {
+      // split() with a capturing group puts the matched delimiters at odd indices.
+      return i % 2 === 1 ? el("mark", null, [piece]) : piece;
+    });
+  }
+
+  function snippetNode(h) {
+    var snip = svc.searchSnippet(h.id, h.match, h.terms);
+    if (!snip) return null;
+    return el("span", { class: "sr-snippet" }, [
+      el("span", { class: "sr-snippet-field" }, [snip.field]),
+      el("span", { class: "sr-snippet-text" }, highlightNodes(snip.text, h.terms)),
+    ]);
+  }
+
+  // Roving active-descendant state for keyboard nav: index into the rendered
+  // option rows, or -1 for "input itself focused, nothing selected".
+  var activeIndex = -1;
+
+  function setExpanded(open) {
+    results.hidden = !open;
+    input.setAttribute("aria-expanded", open ? "true" : "false");
+    if (!open) {
+      activeIndex = -1;
+      input.removeAttribute("aria-activedescendant");
+      status.textContent = "";
+    }
+  }
+
+  function optionRows() { return results.querySelectorAll('[role="option"]'); }
+
+  // Move the roving selection by `delta` (wrapping), reflect it as the .active
+  // class + aria-selected, and point the input's aria-activedescendant at it so
+  // a screen reader announces the row without moving DOM focus off the input.
+  function moveActive(delta) {
+    var rows = optionRows();
+    if (!rows.length) return;
+    if (activeIndex >= 0 && rows[activeIndex]) rows[activeIndex].setAttribute("aria-selected", "false");
+    activeIndex = (activeIndex + delta + rows.length) % rows.length;
+    rows.forEach(function (r, i) { r.classList.toggle("active", i === activeIndex); });
+    var active = rows[activeIndex];
+    active.setAttribute("aria-selected", "true");
+    input.setAttribute("aria-activedescendant", active.id);
+    active.scrollIntoView({ block: "nearest" });
+  }
+
+  function render(hits) {
+    clear(results);
+    activeIndex = -1;
+    input.removeAttribute("aria-activedescendant");
+    if (!hits.length) {
+      // A non-empty query with no hits gets an explicit cue, mirrored into the
+      // #search-status live region for screen readers.
+      var noMatches = "No matches.";
+      results.appendChild(el("div", { class: "sr-empty" }, [noMatches]));
+      status.textContent = noMatches;
+      setExpanded(true);
+      return;
+    }
+    var shown = Math.min(hits.length, SEARCH_RESULT_CAP);
+    status.textContent = shown === 1 ? "1 result." : shown + " results.";
+    hits.slice(0, SEARCH_RESULT_CAP).forEach(function (h, i) {
+      var children = [
+        el("span", { class: "sr-title" }, [
+          el("span", { class: "dot " + h.resource_type }), " " + h.label,
+          el("span", { class: "sr-meta" }, ["  " + h.resource_type + " · " + h.schema]),
+        ]),
+      ];
+      var snip = snippetNode(h);
+      if (snip) children.push(snip);
+      results.appendChild(el("a", {
+        id: "search-opt-" + i,
+        role: "option",
+        "aria-selected": "false",
+        href: "#/node/" + encodeURIComponent(h.id),
+        onclick: function () { closeSearch(); },
+      }, children));
+    });
+    setExpanded(true);
+  }
+
+  function closeSearch() { setExpanded(false); input.value = ""; setSearchOpen(false); }
+  // Map service's parsed operators to MiniSearch's field restriction + a
+  // resource_type filter. A bare `type:` (no free text) scans for the first
+  // SEARCH_RESULT_CAP nodes of that type — O(cap), not O(N) on a huge project.
+  function runQuery(raw) {
+    var p = svc.parseSearchQuery(raw);
+    if (!p.text) {
+      if (!p.filterType) return [];
+      var picked = [];
+      for (var i = 0; i < docs.length && picked.length < SEARCH_RESULT_CAP; i++) {
+        if (docs[i].resource_type === p.filterType) picked.push(docs[i]);
+      }
+      return picked;
+    }
+    var opts = {};
+    if (p.fields) opts.fields = p.fields;
+    if (p.filterType) opts.filter = function (h) { return h.resource_type === p.filterType; };
+    return mini.search(p.text, opts);
+  }
+  input.addEventListener("input", function () {
+    var q = input.value.trim();
+    if (!q) { setExpanded(false); return; }
+    render(runQuery(q));
+  });
+  input.addEventListener("focus", function () { if (input.value.trim()) render(runQuery(input.value.trim())); });
+  // Keyboard nav: ↑/↓ rove the options, Enter follows the active one (or the
+  // first when none is roved), Escape closes. Other keys fall through to typing.
+  input.addEventListener("keydown", function (e) {
+    if (results.hidden) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); moveActive(1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); moveActive(-1); }
+    else if (e.key === "Enter") {
+      var rows = optionRows();
+      var target = rows[activeIndex >= 0 ? activeIndex : 0];
+      if (target) { e.preventDefault(); location.hash = target.getAttribute("href"); closeSearch(); }
+    } else if (e.key === "Escape") { setExpanded(false); }
+  });
+  document.addEventListener("click", function (e) { if (!results.contains(e.target) && e.target !== input) setExpanded(false); });
+}
+
+function initTheme() {
+  var saved = null;
+  try { saved = localStorage.getItem("dbdocs-theme"); } catch (e) { /* private mode */ }
+  if (saved) document.documentElement.setAttribute("data-theme", saved);
+  document.getElementById("theme-toggle").addEventListener("click", function () {
+    var cur = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    document.documentElement.setAttribute("data-theme", cur);
+    try { localStorage.setItem("dbdocs-theme", cur); } catch (e) { /* ignore */ }
+    route();
+  });
+}
+
+/* The version directory the site is served from, e.g. ".../latest/index.html"
+   → "latest". Drops a trailing file segment (index.html) when present. */
+function currentVersionDir() {
+  var parts = location.pathname.split("/").filter(Boolean);
+  if (parts.length && /\.[a-z]+$/i.test(parts[parts.length - 1])) parts.pop();
+  return parts.length ? parts[parts.length - 1] : "";
+}
+
+function initVersions() {
+  var sel = document.getElementById("version-switcher");
+  fetch("../versions.json").then(function (r) { return r.ok ? r.json() : null; }).then(function (versions) {
+    if (!versions || !versions.length) return;
+    versions.forEach(function (v) {
+      var label = v.title || v.version + (v.aliases && v.aliases.length ? " (" + v.aliases.join(", ") + ")" : "");
+      sel.appendChild(el("option", { value: v.version }, [label]));
+    });
+    sel.hidden = false;
+    var current = currentVersionDir();
+    versions.forEach(function (v) { if (v.version === current || (v.aliases || []).indexOf(current) >= 0) sel.value = v.version; });
+    sel.addEventListener("change", function () { location.href = "../" + sel.value + "/index.html"; });
+    maybeWarnNotLatest(versions, current);
+  }).catch(function () { /* unversioned build: no switcher */ });
+}
+
+function maybeWarnNotLatest(versions, current) {
+  var latest = versions[0]; // versions.json is sorted newest-first
+  if (!latest) return;
+  var isLatest = current === latest.version || (latest.aliases || []).indexOf(current) >= 0;
+  var defaultAlias = (svc.meta().default_version || "latest");
+  if (isLatest || current === defaultAlias) return;
+  var target = "../" + ((latest.aliases || []).indexOf(defaultAlias) >= 0 ? defaultAlias : latest.version) + "/index.html";
+  var banner = el("div", { class: "version-warning" }, [
+    el("span", {}, ["You're viewing version "]), el("strong", {}, [current || "?"]),
+    el("span", {}, [" — not the latest ("]), el("strong", {}, [latest.version]), el("span", {}, [")."]),
+    el("a", { href: target }, ["Go to latest →"]),
+  ]);
+  document.body.insertBefore(banner, document.body.firstChild);
+}
+
+/* Off-canvas sidebar drawer for narrow screens: the hamburger toggles
+   body.nav-open; the overlay and any navigation close it. On wide screens the
+   sidebar is always visible (CSS), so toggling the class is harmless there. */
+function setNavOpen(open) {
+  document.body.classList.toggle("nav-open", open);
+  var overlay = document.getElementById("nav-overlay");
+  if (overlay) overlay.hidden = !open;
+  var toggle = document.getElementById("nav-toggle");
+  if (toggle) toggle.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+/* Desktop hide/unhide of the left pane (body.nav-collapsed): the « button in the
+   sidebar header collapses the column; a » rail on the content edge re-opens it.
+   Separate from the mobile drawer (nav-open). */
+function setNavCollapsed(collapsed) {
+  document.body.classList.toggle("nav-collapsed", collapsed);
+  var btn = document.getElementById("nav-collapse");
+  if (btn) btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+}
+
+function initNav() {
+  var toggle = document.getElementById("nav-toggle");
+  var overlay = document.getElementById("nav-overlay");
+  if (toggle) toggle.addEventListener("click", function () {
+    setNavOpen(!document.body.classList.contains("nav-open"));
+  });
+  if (overlay) overlay.addEventListener("click", function () { setNavOpen(false); });
+  // Navigating from the sidebar closes the drawer.
+  if (sidebar) sidebar.addEventListener("click", function (e) {
+    if (e.target.closest("a")) setNavOpen(false);
+  });
+
+  var collapse = document.getElementById("nav-collapse");
+  var reopen = document.getElementById("nav-reopen");
+  if (collapse) collapse.addEventListener("click", function () { setNavCollapsed(true); });
+  if (reopen) reopen.addEventListener("click", function () { setNavCollapsed(false); });
+}
+
+/* Mobile search toggle: the topbar's 🔍 reveals the search row (CSS shows it
+   when body.search-open is set); opening focuses the input. On wide screens the
+   search is always visible, so this just no-ops. */
+function setSearchOpen(open) {
+  document.body.classList.toggle("search-open", open);
+  var toggle = document.getElementById("search-toggle");
+  if (toggle) toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  if (open) {
+    var input = document.getElementById("search");
+    if (input) input.focus();
+  }
+}
+
+function initSearchToggle() {
+  var toggle = document.getElementById("search-toggle");
+  if (toggle) toggle.addEventListener("click", function () {
+    setSearchOpen(!document.body.classList.contains("search-open"));
+  });
+}
+
+/* Apply a custom logo/favicon when the build injected deployed URLs for them;
+   otherwise the bundled defaults in index.html stay untouched. */
+function initBranding() {
+  var META = svc.meta();
+  if (META.logo) {
+    var mark = document.getElementById("brand-mark");
+    if (mark) mark.setAttribute("src", META.logo);
+  }
+  if (META.favicon) {
+    var link = document.querySelector('link[rel="icon"]');
+    if (link) {
+      link.setAttribute("href", META.favicon);
+      // The bundled default is an SVG; a custom favicon may be any image type,
+      // so drop the hardcoded type and let the browser sniff it.
+      link.removeAttribute("type");
+    }
+  }
+}
+
+function initRepo() {
+  var META = svc.meta();
+  if (!META.repo_url) return;
+  var link = document.getElementById("repo-link");
+  link.href = META.repo_url;
+  document.getElementById("repo-name").textContent = META.repo_name || META.repo_url;
+  link.hidden = false;
+}
+
+function initFooter() {
+  var footer = document.getElementById("site-footer");
+  if (!footer) return;
+  clear(footer);
+  footer.appendChild(el("div", { class: "footer-copy" }, [
+    "2026 © ",
+    el("a", { href: "https://github.com/datnguye", target: "_blank", rel: "noopener" }, ["@Dat Nguyen"]),
+  ]));
+  if (svc.meta().show_buy_me_a_coffee !== false) {
+    footer.appendChild(el("a", {
+      class: "bmc", href: "https://www.buymeacoffee.com/datnguye",
+      target: "_blank", rel: "noopener", title: "Buy me a coffee",
+    }, ["☕ Buy me a coffee"]));
+  }
+}
+
+/* Wire the whole shell: cache DOM refs, set chrome from metadata, build nav +
+   search, init theme/versions, and route. Called by the entry once data is
+   loaded into the service tier. */
+export function boot() {
+  app = document.getElementById("app");
+  sidebar = document.getElementById("sidebar");
+
+  var META = svc.meta();
+  document.getElementById("brand-name").textContent = META.site_name || "dbt docs";
+  document.title = META.site_name || "dbt docs";
+  if (META.generated_at) {
+    var gen = document.getElementById("brand-generated");
+    gen.textContent = "Generated " + META.generated_at;
+    gen.hidden = false;
+  }
+  initBranding();
+  initNav();
+  initSearchToggle();
+  initRepo();
+  initFooter();
+  initTheme();
+  buildNav();
+  buildSearch();
+  initVersions();
+  window.addEventListener("hashchange", route);
+  route();
+}
