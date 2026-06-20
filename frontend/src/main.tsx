@@ -18,6 +18,8 @@ function mount(el: HTMLElement): void {
   const focus = el.dataset.focus || null;
   const initialRtype = el.dataset.rtype || "";
   const initialSchema = el.dataset.schema || "";
+  const initialErdFocus = el.dataset.erdFocus || "";
+  const initialErdSchema = el.dataset.erdSchema || "";
   const onOpenNode = (id: string) => {
     location.hash = `#/node/${encodeURIComponent(id)}`;
   };
@@ -32,6 +34,8 @@ function mount(el: HTMLElement): void {
         onOpenNode={onOpenNode}
         initialRtype={initialRtype}
         initialSchema={initialSchema}
+        initialErdFocus={initialErdFocus}
+        initialErdSchema={initialErdSchema}
       />
     </StrictMode>,
   );

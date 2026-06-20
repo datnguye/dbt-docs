@@ -181,6 +181,13 @@
   font-family: monospace;
   flex: 1;
 }
+.dbd-erd-more {
+  padding: 3px 10px;
+  border-top: 1px solid var(--border, #e3e6ea);
+  color: var(--text-soft, #5b636c);
+  font-size: 11px;
+  font-style: italic;
+}
 .dbd-erd-coltype {
   color: var(--text-soft, #5b636c);
   font-size: 11px;

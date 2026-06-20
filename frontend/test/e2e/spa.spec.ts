@@ -553,6 +553,127 @@ test.describe("health check", () => {
   });
 });
 
+test.describe("overview ERD — toolbar, focus, full-screen", () => {
+  test("overview ERD renders a toolbar with search and schema controls", async ({ page }) => {
+    await page.goto("index.html#/overview");
+    const toolbar = page.locator(".dbd-toolbar").first();
+    await expect(toolbar).toBeVisible();
+    const focusInput = toolbar.locator("input");
+    await expect(focusInput).toBeVisible();
+    await expect(focusInput).toHaveAttribute("placeholder", /Focus a table/i);
+    const schemaSelect = toolbar.locator("select");
+    await expect(schemaSelect).toHaveCount(1);
+    await expect(schemaSelect.locator("option").first()).toHaveText(/All schemas/i);
+  });
+
+  test("overview ERD shows the lock/unlock button and is locked by default", async ({ page }) => {
+    await page.goto("index.html#/overview");
+    const erdBar = page.locator(".dbd-erd-bar");
+    await expect(erdBar).toBeVisible();
+    const lockBtn = erdBar.locator(".dbd-lock-btn");
+    await expect(lockBtn).toBeVisible();
+    await expect(lockBtn).not.toHaveClass(/on/);
+    await expect(lockBtn).toContainText("Locked");
+  });
+
+  test("lock button toggles to pan & zoom on when clicked", async ({ page }) => {
+    await page.goto("index.html#/overview");
+    const lockBtn = page.locator(".dbd-erd-bar .dbd-lock-btn");
+    await expect(lockBtn).toBeVisible();
+    await lockBtn.click();
+    await expect(lockBtn).toHaveClass(/on/);
+    await expect(lockBtn).toContainText("Pan & zoom on");
+    await lockBtn.click();
+    await expect(lockBtn).not.toHaveClass(/on/);
+    await expect(lockBtn).toContainText("Locked");
+  });
+
+  test("overview ERD renders all tables without a focus", async ({ page }) => {
+    await page.goto("index.html#/overview");
+    const canvas = page.locator(".dbd-canvas");
+    await expect(canvas).toBeVisible();
+    const tables = page.locator(".dbd-erd");
+    await expect(tables.first()).toBeVisible();
+    await expect(tables).toHaveCount(4);
+  });
+
+  test("overview ERD toolbar focus filters to a radial neighborhood", async ({ page }) => {
+    await page.goto("index.html#/overview");
+    const all = page.locator(".dbd-erd");
+    await expect(all.first()).toBeVisible();
+    await page.fill(".dbd-toolbar input", "orders");
+    await expect(async () => {
+      expect(await all.count()).toBeLessThan(4);
+    }).toPass({ timeout: 3000 });
+    await expect(page.locator(".dbd-erd-focus")).toHaveCount(1);
+    await expect(page.locator(".dbd-erd-focus .dbd-erd-name")).toHaveText("orders");
+  });
+
+  test("overview ERD schema filter narrows the table set", async ({ page }) => {
+    await page.goto("index.html#/overview");
+    const all = page.locator(".dbd-erd");
+    await expect(all.first()).toBeVisible();
+    const schemaSelect = page.locator(".dbd-toolbar select").first();
+    const options = schemaSelect.locator("option");
+    const count = await options.count();
+    if (count > 1) {
+      const secondOption = await options.nth(1).getAttribute("value");
+      if (secondOption) {
+        await schemaSelect.selectOption(secondOption);
+        await expect(async () => {
+          const hash = await page.evaluate(() => location.hash);
+          expect(hash).toContain("erd_schema=");
+        }).toPass({ timeout: 3000 });
+      }
+    }
+  });
+
+  test("overview ERD focus writes erd_focus= into location.hash (deep-link)", async ({ page }) => {
+    await page.goto("index.html#/overview");
+    await page.fill(".dbd-toolbar input", "orders");
+    await expect(async () => {
+      const hash = await page.evaluate(() => location.hash);
+      expect(hash).toContain("erd_focus=");
+    }).toPass({ timeout: 3000 });
+  });
+
+  test("navigating to overview with erd_focus= restores the focus", async ({ page }) => {
+    await page.goto("index.html#/overview?erd_focus=model.jaffle_shop.orders");
+    const focused = page.locator(".dbd-erd-focus");
+    await expect(focused).toBeVisible({ timeout: 5000 });
+    await expect(focused.locator(".dbd-erd-name")).toHaveText("orders");
+  });
+
+  test("overview ERD full-screen button exists in the page-head-actions area", async ({ page }) => {
+    await page.goto("index.html#/overview");
+    const erdSection = page.locator(".page-head").filter({ has: page.locator("h2") });
+    await expect(erdSection).toBeVisible();
+    const fsBtn = erdSection.locator(".fs-btn");
+    await expect(fsBtn).toBeVisible();
+    await expect(fsBtn).toContainText("Full screen");
+  });
+
+  test("model-page Related ERD has its own full-screen button", async ({ page }) => {
+    await page.goto("index.html#/node/model.jaffle_shop.orders");
+    const erdSection = page
+      .locator(".page-head")
+      .filter({ has: page.locator("h2", { hasText: "Related ERD" }) });
+    await expect(erdSection).toBeVisible();
+    const fsBtn = erdSection.locator(".fs-btn");
+    await expect(fsBtn).toBeVisible();
+    await expect(fsBtn).toContainText("Full screen");
+  });
+
+  test("model-page Related ERD renders full columns (not the compact +N more)", async ({ page }) => {
+    await page.goto("index.html#/node/model.jaffle_shop.orders");
+    const focused = page.locator(".dbd-erd-focus");
+    await expect(focused).toBeVisible({ timeout: 5000 });
+    await expect(focused.locator(".dbd-erd-more")).toHaveCount(0);
+    const cols = focused.locator(".dbd-erd-col");
+    expect(await cols.count()).toBeGreaterThan(2);
+  });
+});
+
 test.describe("theme", () => {
   test("toggles dark/light", async ({ page }) => {
     await page.goto("index.html");

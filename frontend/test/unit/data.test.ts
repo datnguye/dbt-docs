@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildDagFlow, buildErdFlow, neighborhood } from "@/lib/data";
-import type { DbdocsData } from "@/lib/types";
+import {
+  assignErdEdgeSides,
+  buildDagFlow,
+  buildErdFlow,
+  erdNeighborhood,
+  neighborhood,
+} from "@/lib/data";
+import type { Edge } from "@xyflow/react";
+import type { DbdocsData, ErdNodeRecord } from "@/lib/types";
 
 const DATA: DbdocsData = {
   nodes: {
@@ -84,5 +91,223 @@ describe("neighborhood", () => {
     // From model.s.b, depth 1 reaches its parent model.s.a but not the
     // grandparent source.s.r two hops up.
     expect(neighborhood(DATA, "model.s.b", 1)).toEqual(new Set(["model.s.b", "model.s.a"]));
+  });
+});
+
+// ERD data with a chain: A → B → C (depth-2 test)
+const ERD_CHAIN: DbdocsData = {
+  nodes: {},
+  lineage: { edges: [], parents: {}, children: {} },
+  erd: {
+    nodes: [
+      { id: "model.s.a", label: "a", resource_type: "model", database: "db", schema: "s", columns: [] },
+      { id: "model.s.b", label: "b", resource_type: "model", database: "db", schema: "s", columns: [] },
+      { id: "model.s.c", label: "c", resource_type: "model", database: "db", schema: "s", columns: [] },
+      { id: "model.s.d", label: "d", resource_type: "model", database: "db", schema: "s", columns: [] },
+    ],
+    edges: [
+      { id: "e0", source: "model.s.a", target: "model.s.b", from_columns: [], to_columns: [] },
+      { id: "e1", source: "model.s.b", target: "model.s.c", from_columns: [], to_columns: [] },
+    ],
+  },
+};
+
+describe("erdNeighborhood", () => {
+  it("depth 1 returns focus + direct FK neighbors only", () => {
+    const result = erdNeighborhood(ERD_CHAIN, "model.s.b", 1);
+    expect(result).toEqual(new Set(["model.s.b", "model.s.a", "model.s.c"]));
+    expect(result.has("model.s.d")).toBe(false);
+  });
+
+  it("depth 2 walks two hops in the undirected FK graph", () => {
+    const result = erdNeighborhood(ERD_CHAIN, "model.s.c", 2);
+    expect(result).toEqual(new Set(["model.s.c", "model.s.b", "model.s.a"]));
+    expect(result.has("model.s.d")).toBe(false);
+  });
+
+  it("depth 0 returns only the focus node itself", () => {
+    const result = erdNeighborhood(ERD_CHAIN, "model.s.b", 0);
+    expect(result).toEqual(new Set(["model.s.b"]));
+  });
+
+  it("isolated node returns only itself", () => {
+    const result = erdNeighborhood(ERD_CHAIN, "model.s.d", 1);
+    expect(result).toEqual(new Set(["model.s.d"]));
+  });
+
+  it("edges in either direction are traversed (undirected)", () => {
+    const result = erdNeighborhood(ERD_CHAIN, "model.s.a", 1);
+    expect(result).toContain("model.s.b");
+  });
+});
+
+// Fixture for erdRowCount / visibleColumns agreement
+const makeRecord = (cols: ErdNodeRecord["columns"]): ErdNodeRecord => ({
+  id: "model.s.x",
+  label: "x",
+  resource_type: "model",
+  database: "db",
+  schema: "s",
+  columns: cols,
+});
+
+const ERD_HEADER = 34;
+const ERD_ROW = 22;
+
+describe("erdRowCount vs visibleColumns agreement (via buildErdFlow sizes)", () => {
+  it("non-compact: height = header + all columns (min 1)", () => {
+    const record = makeRecord([
+      { name: "id", type: "int", is_primary_key: true },
+      { name: "name", type: "text" },
+      { name: "val", type: "int" },
+    ]);
+    const data: DbdocsData = {
+      nodes: {},
+      lineage: { edges: [], parents: {}, children: {} },
+      erd: { nodes: [record], edges: [] },
+    };
+    const flow = buildErdFlow(data, null, false);
+    expect(flow.sizes[0].height).toBe(ERD_HEADER + 3 * ERD_ROW);
+  });
+
+  it("non-compact: shows every column even when key columns exist (model-page ERD)", () => {
+    const record = makeRecord([
+      { name: "id", type: "int", is_primary_key: true },
+      { name: "fk", type: "int", is_foreign_key: true },
+      { name: "extra1", type: "text" },
+      { name: "extra2", type: "text" },
+    ]);
+    const data: DbdocsData = {
+      nodes: {},
+      lineage: { edges: [], parents: {}, children: {} },
+      erd: { nodes: [record], edges: [] },
+    };
+    const flow = buildErdFlow(data, null, false);
+    expect(flow.sizes[0].height).toBe(ERD_HEADER + 4 * ERD_ROW);
+  });
+
+  it("compact: shows only key cols + '+N more' row when non-key cols exist", () => {
+    const record = makeRecord([
+      { name: "id", type: "int", is_primary_key: true },
+      { name: "fk", type: "int", is_foreign_key: true },
+      { name: "extra1", type: "text" },
+      { name: "extra2", type: "text" },
+    ]);
+    const data: DbdocsData = {
+      nodes: {},
+      lineage: { edges: [], parents: {}, children: {} },
+      erd: { nodes: [record], edges: [] },
+    };
+    const flow = buildErdFlow(data, null, true);
+    expect(flow.sizes[0].height).toBe(ERD_HEADER + 3 * ERD_ROW);
+  });
+
+  it("compact: falls back to all columns when no key columns exist", () => {
+    const record = makeRecord([
+      { name: "a", type: "text" },
+      { name: "b", type: "text" },
+    ]);
+    const data: DbdocsData = {
+      nodes: {},
+      lineage: { edges: [], parents: {}, children: {} },
+      erd: { nodes: [record], edges: [] },
+    };
+    const flow = buildErdFlow(data, null, true);
+    expect(flow.sizes[0].height).toBe(ERD_HEADER + 2 * ERD_ROW);
+  });
+
+  it("compact: all columns keyed → no '+more' row", () => {
+    const record = makeRecord([
+      { name: "id", type: "int", is_primary_key: true },
+      { name: "fk", type: "int", is_foreign_key: true },
+    ]);
+    const data: DbdocsData = {
+      nodes: {},
+      lineage: { edges: [], parents: {}, children: {} },
+      erd: { nodes: [record], edges: [] },
+    };
+    const flow = buildErdFlow(data, null, true);
+    expect(flow.sizes[0].height).toBe(ERD_HEADER + 2 * ERD_ROW);
+  });
+
+  it("non-compact empty columns: min 1 row", () => {
+    const record = makeRecord([]);
+    const data: DbdocsData = {
+      nodes: {},
+      lineage: { edges: [], parents: {}, children: {} },
+      erd: { nodes: [record], edges: [] },
+    };
+    const flow = buildErdFlow(data, null, false);
+    expect(flow.sizes[0].height).toBe(ERD_HEADER + 1 * ERD_ROW);
+  });
+});
+
+describe("buildErdFlow with keepIds", () => {
+  it("restricts nodes and edges to the provided keepIds set", () => {
+    const flow = buildErdFlow(DATA, "model.s.a", false, new Set(["model.s.a"]));
+    expect(flow.nodes).toHaveLength(1);
+    expect(flow.nodes[0].id).toBe("model.s.a");
+    expect(flow.edges).toHaveLength(0);
+  });
+
+  it("sets focused flag on the focus node", () => {
+    const flow = buildErdFlow(DATA, "model.s.a", false, new Set(["model.s.a", "model.s.b"]));
+    const focusNode = flow.nodes.find((n) => n.id === "model.s.a");
+    expect((focusNode?.data as { focused?: boolean }).focused).toBe(true);
+    const otherNode = flow.nodes.find((n) => n.id === "model.s.b");
+    expect((otherNode?.data as { focused?: boolean }).focused).toBe(false);
+  });
+});
+
+describe("assignErdEdgeSides", () => {
+  const SIZES = [
+    { id: "a", width: 230, height: 100 },
+    { id: "b", width: 230, height: 100 },
+  ];
+  const edge = (data: Record<string, unknown>): Edge => ({
+    id: "e0",
+    source: "a",
+    target: "b",
+    sourceHandle: "x__out__r",
+    targetHandle: "y__in__l",
+    data,
+  });
+
+  it("source exits right / target enters left when target is to the right", () => {
+    const pos = new Map([
+      ["a", { x: 0, y: 0 }],
+      ["b", { x: 1000, y: 0 }],
+    ]);
+    const [e] = assignErdEdgeSides([edge({ sourceCol: "x", targetCol: "y" })], pos, SIZES);
+    expect(e.sourceHandle).toBe("x__out__r");
+    expect(e.targetHandle).toBe("y__in__l");
+  });
+
+  it("flips to source-left / target-right when target is to the left", () => {
+    const pos = new Map([
+      ["a", { x: 1000, y: 0 }],
+      ["b", { x: 0, y: 0 }],
+    ]);
+    const [e] = assignErdEdgeSides([edge({ sourceCol: "x", targetCol: "y" })], pos, SIZES);
+    expect(e.sourceHandle).toBe("x__out__l");
+    expect(e.targetHandle).toBe("y__in__r");
+  });
+
+  it("uses table-level handles when an endpoint has no resolved column", () => {
+    const pos = new Map([
+      ["a", { x: 0, y: 0 }],
+      ["b", { x: 1000, y: 0 }],
+    ]);
+    const [e] = assignErdEdgeSides([edge({ sourceCol: null, targetCol: null })], pos, SIZES);
+    expect(e.sourceHandle).toBe("__table__out__r");
+    expect(e.targetHandle).toBe("__table__in__l");
+  });
+
+  it("leaves an edge untouched when a node has no position", () => {
+    const pos = new Map([["a", { x: 0, y: 0 }]]);
+    const orig = edge({ sourceCol: "x", targetCol: "y" });
+    const [e] = assignErdEdgeSides([orig], pos, SIZES);
+    expect(e.sourceHandle).toBe("x__out__r");
+    expect(e.targetHandle).toBe("y__in__l");
   });
 });

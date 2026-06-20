@@ -18,6 +18,7 @@ from dbdocs.core.config import DbDocsConfig
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 JAFFLE_SHOP_ARTIFACTS = FIXTURES_DIR / "jaffle_shop"
 RUN_RESULTS = JAFFLE_SHOP_ARTIFACTS / "run_results.json"
+BIG_PROJECT_ARTIFACTS = FIXTURES_DIR / "big_project"
 
 
 @pytest.fixture
@@ -39,6 +40,18 @@ def jaffle_project(tmp_path, monkeypatch):
     target.mkdir()
     for name in ("manifest.json", "catalog.json"):
         shutil.copy(JAFFLE_SHOP_ARTIFACTS / name, target / name)
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
+
+
+@pytest.fixture
+def big_project(tmp_path, monkeypatch):
+    """A throwaway dbt project staging the larger real v12 artifacts (96 models,
+    149 tests, snowflake) — exercises generate at scale."""
+    target = tmp_path / "target"
+    target.mkdir()
+    for name in ("manifest.json", "catalog.json"):
+        shutil.copy(BIG_PROJECT_ARTIFACTS / name, target / name)
     monkeypatch.chdir(tmp_path)
     return tmp_path
 
