@@ -45,11 +45,13 @@ function unmountGraph() {
   mountedGraph = null;
 }
 
-function graphMount(mode, focus, rtype, schema) {
+function graphMount(mode, focus, rtype, schema, erdFocus, erdSchema) {
   var root = el("div", { class: "graph-host", id: "graph-root", "data-mode": mode });
   if (focus) root.setAttribute("data-focus", focus);
   if (rtype) root.setAttribute("data-rtype", rtype);
   if (schema) root.setAttribute("data-schema", schema);
+  if (erdFocus) root.setAttribute("data-erd-focus", erdFocus);
+  if (erdSchema) root.setAttribute("data-erd-schema", erdSchema);
   setTimeout(function () {
     if (window.dbdocsGraph) { mountedGraph = root; window.dbdocsGraph.mount(root); }
     else root.appendChild(el("p", { class: "empty" }, ["Graph bundle not loaded."]));
@@ -90,7 +92,7 @@ export function route() {
   if (r.view === "node" && r.id && svc.node(r.id)) renderNode(svc.node(r.id));
   else if (r.view === "dag") renderDag(r.query.focus, r.query.rtype, r.query.schema);
   else if (r.view === "health") renderHealth(r.query.d);
-  else renderOverview();
+  else renderOverview(r.query.erd_focus, r.query.erd_schema);
   if (r.view !== "dag") app.appendChild(contentFooter());
   highlightNav(r);
   app.focus();
@@ -202,7 +204,7 @@ function highlightNav(r) {
   }
 }
 
-function renderOverview() {
+function renderOverview(erdFocus, erdSchema) {
   clear(app);
   var META = svc.meta();
   app.appendChild(el("h1", {}, [META.project_name || "dbt docs"]));
@@ -212,8 +214,17 @@ function renderOverview() {
 
   if (svc.healthEnabled()) app.appendChild(healthSummaryCard());
 
-  app.appendChild(el("h2", {}, ["Entity-relationship diagram"]));
-  app.appendChild(graphMount("erd", null));
+  var erdHost = graphMount("erd", null, null, null, erdFocus || "", erdSchema || "");
+  var fsBtn = el("button", {
+    class: "fs-btn", type: "button", title: "Toggle full screen",
+    onclick: function () { toggleFullscreen(erdHost); },
+  }, [icon("fullscreen", 15), " Full screen"]);
+  var erdHeader = el("div", { class: "page-head" }, [
+    el("h2", {}, ["Entity-relationship diagram"]),
+    el("div", { class: "page-head-actions" }, [fsBtn]),
+  ]);
+  app.appendChild(erdHeader);
+  app.appendChild(erdHost);
 
   var README = svc.readme();
   if (README) app.appendChild(renderReadme(README));
@@ -553,8 +564,16 @@ function renderNode(n) {
   if (tests) app.appendChild(tests);
 
   /* Related ERD — before the transformation logic. */
-  app.appendChild(el("h2", {}, ["Related ERD"]));
-  app.appendChild(graphMount("erd-node", n.id));
+  var erdNodeHost = graphMount("erd-node", n.id);
+  var erdNodeFs = el("button", {
+    class: "fs-btn", type: "button", title: "Toggle full screen",
+    onclick: function () { toggleFullscreen(erdNodeHost); },
+  }, [icon("fullscreen", 15), " Full screen"]);
+  app.appendChild(el("div", { class: "page-head" }, [
+    el("h2", {}, ["Related ERD"]),
+    el("div", { class: "page-head-actions" }, [erdNodeFs]),
+  ]));
+  app.appendChild(erdNodeHost);
 
   /* Transformation logic. */
   if (n.compiled_code || n.raw_code) {

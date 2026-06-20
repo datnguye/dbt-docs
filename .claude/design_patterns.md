@@ -32,24 +32,27 @@ authoritative; grep it.
   - [Windowed graph rendering](#windowed-graph-rendering)
     - [Theory](#theory-7)
     - [Example](#example-7)
-  - [ERD from dbterd's built-in json target](#erd-from-dbterds-built-in-json-target)
+  - [Pluggable graph layout (dagre / radial registry)](#pluggable-graph-layout-dagre--radial-registry)
     - [Theory](#theory-8)
     - [Example](#example-8)
-  - [Bundled SPA directory resolution](#bundled-spa-directory-resolution)
+  - [ERD from dbterd's built-in json target](#erd-from-dbterds-built-in-json-target)
     - [Theory](#theory-9)
     - [Example](#example-9)
-  - [Versioned deploy without mike](#versioned-deploy-without-mike)
+  - [Bundled SPA directory resolution](#bundled-spa-directory-resolution)
     - [Theory](#theory-10)
     - [Example](#example-10)
-  - [Click group entrypoint](#click-group-entrypoint)
+  - [Versioned deploy without mike](#versioned-deploy-without-mike)
     - [Theory](#theory-11)
     - [Example](#example-11)
-  - [Singleton colored logger](#singleton-colored-logger)
+  - [Click group entrypoint](#click-group-entrypoint)
     - [Theory](#theory-12)
     - [Example](#example-12)
-  - [Always-built artifact-derived data-dict section (Health Check)](#always-built-artifact-derived-data-dict-section-health-check)
+  - [Singleton colored logger](#singleton-colored-logger)
     - [Theory](#theory-13)
     - [Example](#example-13)
+  - [Always-built artifact-derived data-dict section (Health Check)](#always-built-artifact-derived-data-dict-section-health-check)
+    - [Theory](#theory-14)
+    - [Example](#example-14)
 
 ## Pipeline-stage package layout
 
@@ -325,15 +328,38 @@ for column in output_columns:
 ### Theory
 
 The React Flow graph app (`frontend/`, React+TS, built into the committed
-`assets/graph/` bundle) **windows large graphs before layout** so a 1000s-of-models
-DAG never freezes the browser. The DAG renders only a focal node's bounded
-neighborhood (`neighborhood(data, focus, maxDepth)`) or the dropdown-filtered set;
-when unfocused and over `MAX_UNFOCUSED_DAG_NODES`, it shows a "focus a node"
-placeholder instead of laying out every node. `buildDagFlow(data, keepIds)`
-filters to the kept set up front, so dagre never sees the full graph. The per-node
-ERD (`erd-node`) shows a placeholder naming the configured dbterd `erd_algo` (with
-a docs link) when no relationships are detected. Graph-UI changes need a Node
-rebuild (`task frontend:build`) of the committed bundle.
+`assets/graph/` bundle) keeps 1000s-of-models graphs from freezing the browser,
+but the **DAG and ERD use different strategies** — don't conflate them:
+
+- **DAG — window before layout.** The DAG renders only a focal node's bounded
+  neighborhood (`neighborhood(data, focus, maxDepth)`) or the dropdown-filtered
+  set; when unfocused and over `MAX_UNFOCUSED_DAG_NODES`, it shows a "focus a
+  node" placeholder instead of laying out every node. `buildDagFlow(data,
+  keepIds)` filters to the kept set up front, so dagre never sees the full graph.
+- **ERD — render all, lazily.** The overview ERD has **no node cap**: it lays out
+  *every* table (schema-filtered) so the whole snowflake is visible, and relies on
+  React Flow's `onlyRenderVisibleElements` (set only for the ERD) to mount just the
+  nodes in the viewport — so DOM cost is bounded by what's on screen, not by N.
+  Removing `onlyRenderVisibleElements` would regress this (and the per-column
+  both-side handles make each ERD node ~2× the DOM, so the lazy render is
+  load-bearing). Focusing a table (search box) narrows to its FK neighborhood
+  (`erdNeighborhood`); the per-node ERD (`erd-node`) shows a placeholder naming
+  the configured dbterd `erd_algo` (with a docs link) when no relationships are
+  detected.
+
+**Compact overview, full model-page.** `buildErdFlow(..., compact)` controls per
+node column rendering: the overview ERD draws nodes **compact** (only PK/FK
+columns, with a "+N more columns" row — `visibleColumns` / `erdRowCount`) so a
+wide fact table stays a few rows tall and the radial snowflake reads; the
+model-page ERD (`erd-node`) passes `compact = false` so a single model and its
+1-hop neighbors show **every** column and edge (the neighborhood is small, so the
+DOM stays bounded). The unfocused-ERD empty state is **split**: zero ERD nodes
+shows the `erd_algo` "no relationships detected" placeholder (`erdNoTables`),
+while a schema filter that matched nothing shows "clear the schema filter"
+(`erdFilterEmpty`) — don't collapse the two.
+
+Graph-UI changes need a Node rebuild (`task frontend:build`) of the committed
+bundle.
 
 ### Example
 
@@ -353,9 +379,51 @@ const dagKeep = useMemo(() => {
 }, [isDag, focusId, data, rtype, schema]);
 ```
 
-- `frontend/src/lib/data.ts` — `neighborhood`, `buildDagFlow`
-- `frontend/src/components/GraphApp.tsx` — `MAX_UNFOCUSED_DAG_NODES`, `dagKeep`, `erdNodeEmpty`
+- `frontend/src/lib/data.ts` — `neighborhood`, `buildDagFlow`, `erdNeighborhood`, `buildErdFlow` (`compact`), `erdRowCount`
+- `frontend/src/components/nodes/ErdTableNode.tsx` — `visibleColumns` (compact key-column filter + "+N more")
+- `frontend/src/components/GraphApp.tsx` — `MAX_UNFOCUSED_DAG_NODES` (DAG-only), `dagKeep`, `erdKeep`, `erdNoTables`, `erdFilterEmpty`, `erdNodeEmpty`, `onlyRenderVisibleElements={isErd}`
 - `dbdocs/site/builder.py` / `dbdocs/extract/erd.py` — `erd_algo` (metadata)
+
+## Pluggable graph layout (dagre / radial registry)
+
+### Theory
+
+The graph app picks a layout **by name from a registry**, not with a hardcoded
+`if`. `frontend/src/lib/layout.ts` defines a `LayoutEngine` type
+(`(sized, edges, opts?{centerId}) => Positions`), a name→engine map, and
+`registerLayout(name, engine)` / `resolveLayout(name)` (falls back to `dagre` for
+an unknown name). Two engines are registered at module load: **`dagre`** (the
+hierarchical LR layout — the DAG and any non-centered case) and **`radial`** (the
+ERD "snowflake": focus/hub at the center, FK neighbors fanning out on concentric
+rings by BFS hop). `GraphApp` selects `isDag ? "dagre" : "radial"`; the radial
+engine centers on the explicit focus or, unfocused, on `mostConnected(...)` (the
+highest-degree table). Add a new layout by registering it — don't fork the
+selection logic. The DAG stays dagre (flow direction matters); radial is
+ERD-only.
+
+Radial sizing keeps a tall fact table from overlapping a small focus: ring radius
+clears the **larger of the neighbor's width/height** half-extent, and the
+alternating half-slot angle offset is suppressed for rings of ≤2 (it would stack
+the pair vertically over the center).
+
+### Example
+
+```typescript
+// frontend/src/lib/layout.ts — engines register by name; resolve picks one
+registerLayout("dagre", (sized, edges) => layoutNodes(sized, edges));
+registerLayout("radial", (sized, edges, opts) => {
+  const center = opts?.centerId ?? mostConnected(sized, edges);
+  return center ? radialLayout(center, sized, edges) : layoutNodes(sized, edges);
+});
+
+// frontend/src/components/GraphApp.tsx — pick by name, never a hardcoded fn
+const positions = resolveLayout(isDag ? "dagre" : "radial")(
+  flow.sizes, asLayoutEdges(flow.edges), { centerId },
+);
+```
+
+- `frontend/src/lib/layout.ts` — `LayoutEngine`, `registerLayout`, `resolveLayout`, `mostConnected`, `radialLayout`, `layoutNodes`
+- `frontend/src/components/GraphApp.tsx` — `resolveLayout(isDag ? "dagre" : "radial")`
 
 ## ERD from dbterd's built-in json target
 

@@ -128,11 +128,17 @@ block (e.g. `algo`) controlling ERD relationship detection.
 - Specific exception types in `try/except` — never bare `except:` /
   `except Exception`.
 - No backward-compat shims unless explicitly asked.
-- Comments are sparse and present-tense. Add one only when the code isn't
-  self-evident, and have it describe the code as it stands — never historically.
-  No changelog narration: drop "now / no longer / used to / as before / instead
-  of the old" framing (that's what git is for). Applies to Python, the bundle JS,
-  and tests (incl. test names).
+- **Do not add new inline comments.** Let names and structure carry intent;
+  put any rationale in `.claude/design_patterns.md` (or a module/function
+  docstring for an API contract), never in scattered `#` / `//` lines inside a
+  function body. This applies to new and edited code alike — when you touch a
+  block, do not leave behind explanatory inline comments. Applies to Python, the
+  bundle JS, and tests (incl. test names).
+- The few inline comments that already exist must still describe the current
+  implementation only — never the history that led to it. Drop "we used to…",
+  "no longer…", "now / as before / instead of the old…", and references to
+  removed code. A comment should read correctly to someone who has never seen a
+  previous version.
 - DRY in tests — share fixtures via `tests/conftest.py`.
 - The SPA (vanilla JS under `site/bundle/`) owns presentation; the Python only
   assembles the data dict. The shell is native ES modules in 3 tiers under

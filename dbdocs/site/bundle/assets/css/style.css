@@ -314,6 +314,7 @@ details.macro pre.code { margin: 0; border: none; border-top: 1px solid var(--bo
 .graph-host:fullscreen .dbd-graph { height: 100vh; border: none; border-radius: 0; }
 
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.page-head h2 { border-bottom: none; padding-bottom: 0; }
 .page-head-actions { display: flex; align-items: center; gap: 8px; }
 .fs-btn {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px;
