@@ -1,5 +1,6 @@
 import gzip
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -71,6 +72,14 @@ def _patch_boundaries(monkeypatch, fake_manifest, fake_catalog):
     monkeypatch.setattr(
         "dbdocs.site.builder.build_erd", lambda options, artifacts_dir=None: _FakeErd()
     )
+
+
+class _FrozenDatetime:
+    """Pins datetime.now() so two generate() runs share one generated_at stamp."""
+
+    @classmethod
+    def now(cls):
+        return datetime(2026, 1, 1, 0, 0, 0)
 
 
 def test_build_data_assembles_all_sections(monkeypatch, config, fake_manifest, fake_catalog):
@@ -760,6 +769,7 @@ def test_api_health_json_matches_data_dict(monkeypatch, config, fake_manifest, f
 def test_api_output_is_deterministic(monkeypatch, config, fake_manifest, fake_catalog):
     """Two generate() runs must produce byte-for-byte identical api/v1 files."""
     _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    monkeypatch.setattr("dbdocs.site.builder.datetime", _FrozenDatetime)
     builder = ReportBuilder(config)
 
     out1 = Path(builder.generate())
