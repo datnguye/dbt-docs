@@ -9,8 +9,11 @@ var DOWNSTREAM = null;
 // Cache of the per-node indexed search text, keyed by id, populated by
 // searchDocs() and read by searchSnippet() (both pure, DOM-free). Reset on init().
 var SEARCH_TEXT = null;
+var METRIC_BY_NAME = null;
+var MEASURE_TO_SM = null;
+var NODES_BY_RTYPE = null;
 
-export function init(data) { DATA = data; DOWNSTREAM = null; SEARCH_TEXT = null; }
+export function init(data) { DATA = data; DOWNSTREAM = null; SEARCH_TEXT = null; METRIC_BY_NAME = null; MEASURE_TO_SM = null; NODES_BY_RTYPE = null; }
 
 export function meta() { return DATA.metadata; }
 export function nodes() { return DATA.nodes; }
@@ -232,6 +235,11 @@ export function footerMeta() {
   return parts.join(" · ");
 }
 
+export function aboutLinks() {
+  var links = DATA.metadata.about_links;
+  return Array.isArray(links) && links.length > 0 ? links : [];
+}
+
 /* { lowercased columnName: [{node, column}, …] } for one node.
    Keyed lowercase because sqlglot normalizes identifiers to lower case while
    the catalog may report them uppercase (Snowflake/BigQuery). */
@@ -374,7 +382,11 @@ export function pluralize(rtype) {
   return label + "s";
 }
 
-var RTYPE_ORDER = { model: 0, snapshot: 1, seed: 2, source: 3 };
+var RTYPE_ORDER = {
+  model: 0, snapshot: 1, seed: 2, source: 3,
+  analysis: 4, operation: 5,
+  metric: 6, semantic_model: 7, saved_query: 8, unit_test: 9, exposure: 10,
+};
 var RTYPE_ORDER_CARDS = [
   "model", "source", "seed", "snapshot", "test", "unit_test",
   "metric", "semantic_model", "exposure", "saved_query", "operation", "macro",
@@ -400,3 +412,175 @@ export function cardTypes(c) {
   });
   return types;
 }
+
+export function resolveDeps(ids) {
+  var N = DATA.nodes;
+  return (ids || [])
+    .filter(function (id) { return !!N[id]; })
+    .map(function (id) {
+      var n = N[id];
+      return { id: id, label: n.label || n.name, rtype: n.resource_type, resolved: true };
+    })
+    .sort(function (a, b) { return a.label.localeCompare(b.label); });
+}
+
+export function dependsOn(id) {
+  return resolveDeps((DATA.lineage.parents || {})[id]);
+}
+
+export function referencedBy(id) {
+  return resolveDeps((DATA.lineage.children || {})[id]);
+}
+
+export function metricPayload(n) { return n.metric || {}; }
+export function semanticModelPayload(n) { return n.semantic_model || {}; }
+export function savedQueryPayload(n) { return n.saved_query || {}; }
+export function unitTestPayload(n) { return n.unit_test || {}; }
+export function exposurePayload(n) { return n.exposure || {}; }
+
+/* Semantic-layer cross-link accessors — all DOM-free, resolved from the nodes dict.
+
+   metricByName:          metric short name → { id, label } or null.
+   semanticModelForMeasure: measure name → { id, label } of the owning semantic_model,
+                            or null when no semantic model declares that measure.
+   metricsForSemanticModel: semantic_model node id → sorted array of { id, label } for
+                            every metric whose input_measures overlap with the measures
+                            defined on this semantic model. */
+
+function buildMetricByNameIndex() {
+  if (METRIC_BY_NAME !== null) return;
+  METRIC_BY_NAME = {};
+  var N = DATA.nodes;
+  Object.keys(N).forEach(function (id) {
+    var n = N[id];
+    if (n.resource_type === "metric") METRIC_BY_NAME[n.name] = { id: id, label: n.label || n.name };
+  });
+}
+
+function buildMeasureToSmIndex() {
+  if (MEASURE_TO_SM !== null) return;
+  MEASURE_TO_SM = {};
+  var N = DATA.nodes;
+  Object.keys(N).forEach(function (id) {
+    var n = N[id];
+    if (n.resource_type !== "semantic_model") return;
+    var measures = (n.semantic_model && n.semantic_model.measures) || [];
+    measures.forEach(function (m) {
+      if (m.name) MEASURE_TO_SM[m.name] = { id: id, label: n.label || n.name };
+    });
+  });
+}
+
+export function metricByName(name) {
+  buildMetricByNameIndex();
+  return METRIC_BY_NAME[name] || null;
+}
+
+export function semanticModelForMeasure(measureName) {
+  buildMeasureToSmIndex();
+  return MEASURE_TO_SM[measureName] || null;
+}
+
+export function metricsForSemanticModel(nodeId) {
+  var sm = DATA.nodes[nodeId];
+  if (!sm || sm.resource_type !== "semantic_model") return [];
+  var smMeasureNames = {};
+  ((sm.semantic_model && sm.semantic_model.measures) || []).forEach(function (m) {
+    if (m.name) smMeasureNames[m.name] = true;
+  });
+  var N = DATA.nodes;
+  var results = [];
+  Object.keys(N).forEach(function (id) {
+    var n = N[id];
+    if (n.resource_type !== "metric") return;
+    var inputMeasures = (n.metric && n.metric.type_params && n.metric.type_params.input_measures) || [];
+    var linked = inputMeasures.some(function (name) { return smMeasureNames[name]; });
+    if (linked) results.push({ id: id, label: n.label || n.name });
+  });
+  results.sort(function (a, b) { return a.label.localeCompare(b.label); });
+  return results;
+}
+
+/* Sidebar tab bands. Mirrors the CATALOG/SEMANTIC/OTHER_RTYPES partitioning in
+   the graph bundle (frontend/src/lib/data.ts) so the two apps agree on which
+   resource type lands in which band. "semantic" is the dbt Semantic Layer proper
+   (metrics/semantic models/saved queries); "other" is the typeless resources that
+   aren't Semantic Layer (unit tests, exposures). */
+var _SEMANTIC_TYPES = ["metric", "semantic_model", "saved_query"];
+var _OTHER_TYPES = ["unit_test", "exposure"];
+var _TAB_TYPES = { semantic: _SEMANTIC_TYPES, other: _OTHER_TYPES };
+var _TAB_LABELS = { catalog: "Catalog", semantic: "Semantic", other: "Other" };
+var _RTYPE_LABELS = {
+  metric: "Metrics", semantic_model: "Semantic models",
+  saved_query: "Saved queries", unit_test: "Unit tests", exposure: "Exposures",
+};
+
+/* Physical resource types that belong in the Catalog tab. */
+var _CATALOG_RTYPES = { model: 1, seed: 1, snapshot: 1, source: 1, analysis: 1, operation: 1 };
+
+function buildNodesByRtypeIndex() {
+  if (NODES_BY_RTYPE !== null) return;
+  NODES_BY_RTYPE = {};
+  var N = DATA.nodes;
+  Object.keys(N).forEach(function (id) {
+    var rtype = N[id].resource_type;
+    if (!NODES_BY_RTYPE[rtype]) NODES_BY_RTYPE[rtype] = [];
+    NODES_BY_RTYPE[rtype].push(id);
+  });
+  Object.keys(NODES_BY_RTYPE).forEach(function (rtype) {
+    NODES_BY_RTYPE[rtype].sort(function (a, b) {
+      return (N[a].label || "").localeCompare(N[b].label || "");
+    });
+  });
+}
+
+/* Sum of node counts for a band's resource types. */
+function _bandCount(types) {
+  return types.reduce(function (sum, rtype) {
+    return sum + (NODES_BY_RTYPE[rtype] || []).length;
+  }, 0);
+}
+
+/* Up to three tab descriptors: Catalog (always) + Semantic + Other (each when its
+   band has any node). Valid tab keys are "catalog", "semantic", and "other". */
+export function resourceTabs() {
+  buildNodesByRtypeIndex();
+  var catalogCount = _bandCount(Object.keys(_CATALOG_RTYPES));
+  var tabs = [{ key: "catalog", label: _TAB_LABELS.catalog, count: catalogCount }];
+  ["semantic", "other"].forEach(function (key) {
+    var count = _bandCount(_TAB_TYPES[key]);
+    if (count > 0) tabs.push({ key: key, label: _TAB_LABELS[key], count: count });
+  });
+  return tabs;
+}
+
+/* Ordered sub-section descriptors for a typeless tab panel ("semantic"/"other").
+   One entry per non-empty resource type in the band, in canonical display order. */
+export function navSections(tabKey) {
+  buildNodesByRtypeIndex();
+  var sections = [];
+  (_TAB_TYPES[tabKey] || []).forEach(function (rtype) {
+    var ids = NODES_BY_RTYPE[rtype] || [];
+    if (ids.length > 0) {
+      sections.push({ rtype: rtype, label: _RTYPE_LABELS[rtype] || rtype, count: ids.length, ids: ids });
+    }
+  });
+  return sections;
+}
+
+/* The tab a resource type lives under: "semantic", "other", or "catalog". */
+export function tabForRtype(rtype) {
+  if (_SEMANTIC_TYPES.indexOf(rtype) !== -1) return "semantic";
+  if (_OTHER_TYPES.indexOf(rtype) !== -1) return "other";
+  return "catalog";
+}
+
+/* Returns true if a node id belongs to a physical (catalog) resource type. */
+export function isCatalogNode(id) {
+  var n = DATA.nodes[id];
+  return n ? !!_CATALOG_RTYPES[n.resource_type] : false;
+}
+
+/* Section-count helpers (DOM-free; consumed by ui nodeSection badges). */
+export function columnCount(n) { return (n && n.columns) ? n.columns.length : 0; }
+export function macroCount(n) { return (n && n.macros) ? n.macros.length : 0; }

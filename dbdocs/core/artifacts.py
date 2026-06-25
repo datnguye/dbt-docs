@@ -25,6 +25,18 @@ UNKNOWN = "_unknown"
 #: unique_id prefixes surfaced as catalog nodes (tests/macros/etc. excluded).
 NODE_PREFIXES = ("model.", "seed.", "snapshot.")
 
+#: unique_id prefixes for manifest.nodes entries that carry only code (no columns).
+CODE_ONLY_PREFIXES = ("analysis.", "operation.")
+
+#: Manifest collections outside manifest.nodes, mapping id_prefix → attribute name.
+COLLECTION_ATTRS: "dict[str, str]" = {
+    "metric.": "metrics",
+    "semantic_model.": "semantic_models",
+    "saved_query.": "saved_queries",
+    "unit_test.": "unit_tests",
+    "exposure.": "exposures",
+}
+
 
 def artifact_version(target_path: str, artifact: str) -> "int | None":
     """Resolve a dbt artifact's schema version int from its ``dbt_schema_version``.

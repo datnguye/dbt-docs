@@ -2,14 +2,18 @@
 
 ``LineageGraph`` turns the manifest's ``parent_map`` (falling back to per-node
 ``depends_on.nodes``) into directed parent→child edges plus adjacency maps,
-restricted to the nodes the SPA actually surfaces (models/seeds/snapshots/
-sources) so test/macro dependencies don't dangle. The result feeds the
-interactive DAG view.
+covering all surfaced resource types (models/seeds/snapshots/sources/analyses/
+operations/metrics/semantic_models/saved_queries/unit_tests/exposures) so that
+``dependsOn``/``referencedBy`` on new pages resolve correctly.
+
+The visual DAG view filters by ``data-rtype`` in the graph bundle, so including
+non-physical types in the lineage graph does not pollute the DAG display. Macros
+and test nodes are still excluded — they are never surfaced as navigable pages.
 """
 
 from typing import Any
 
-from dbdocs.core.artifacts import NODE_PREFIXES
+from dbdocs.core.artifacts import CODE_ONLY_PREFIXES, COLLECTION_ATTRS, NODE_PREFIXES
 
 
 class LineageGraph:
@@ -17,17 +21,17 @@ class LineageGraph:
 
     def __init__(self, manifest: Any, node_ids: "set | None" = None) -> None:
         self.manifest = manifest
-        #: Restrict edges to these ids. Defaults to models/seeds/snapshots +
-        #: sources derived from the manifest, matching ``nodes.build_nodes``.
         self.node_ids = node_ids if node_ids is not None else self._default_node_ids()
 
     def _default_node_ids(self) -> set:
         ids = {
             uid
             for uid in (getattr(self.manifest, "nodes", {}) or {})
-            if str(uid).startswith(NODE_PREFIXES)
+            if str(uid).startswith(NODE_PREFIXES + CODE_ONLY_PREFIXES)
         }
         ids.update(getattr(self.manifest, "sources", {}) or {})
+        for attr in COLLECTION_ATTRS.values():
+            ids.update(getattr(self.manifest, attr, None) or {})
         return ids
 
     def build(self) -> dict:
@@ -69,4 +73,7 @@ class LineageGraph:
     def _lookup(self, unique_id: str) -> Any:
         if str(unique_id).startswith("source."):
             return (getattr(self.manifest, "sources", {}) or {}).get(unique_id)
+        for prefix, attr in COLLECTION_ATTRS.items():
+            if str(unique_id).startswith(prefix):
+                return (getattr(self.manifest, attr, None) or {}).get(unique_id)
         return (getattr(self.manifest, "nodes", {}) or {}).get(unique_id)

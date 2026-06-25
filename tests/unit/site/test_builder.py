@@ -1,11 +1,14 @@
 import gzip
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from dbdocs.extract import erd as erd_mod
-from dbdocs.site.builder import ReportBuilder
+from dbdocs.site.api_schema import SCHEMA_FILES
+from dbdocs.site.builder import _UNSAFE_ID_CHARS, ReportBuilder, _invert_column_lineage
 
 
 class _FakeErd:
@@ -71,16 +74,24 @@ def _patch_boundaries(monkeypatch, fake_manifest, fake_catalog):
     )
 
 
+class _FrozenDatetime:
+    """Pins datetime.now() so two generate() runs share one generated_at stamp."""
+
+    @classmethod
+    def now(cls):
+        return datetime(2026, 1, 1, 0, 0, 0)
+
+
 def test_build_data_assembles_all_sections(monkeypatch, config, fake_manifest, fake_catalog):
     _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
     data = ReportBuilder(config).build_data()
 
-    # Health Check is always built (empty-but-enabled when no run_results.json).
     assert set(data) == {
         "metadata",
         "nodes",
         "lineage",
         "columnLineage",
+        "columnLineageMeta",
         "erd",
         "tree",
         "readme",
@@ -633,3 +644,430 @@ def test_resolve_run_results_escaping_path_uses_default(
     # Should not raise; builds a health section (empty because no file there).
     data = ReportBuilder(config).build_data()
     assert "health" in data
+
+
+# ---------------------------------------------------------------------------
+# Static REST api/v1 surface
+# ---------------------------------------------------------------------------
+
+
+def test_generate_writes_api_v1_files(monkeypatch, config, fake_manifest, fake_catalog):
+    """generate() must produce api/v1/index.json, lineage.json, and health.json."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+
+    assert (out / "api" / "v1" / "index.json").is_file()
+    assert (out / "api" / "v1" / "lineage.json").is_file()
+    assert (out / "api" / "v1" / "health.json").is_file()
+    assert (out / "api" / "v1" / "nodes").is_dir()
+
+
+def test_api_index_lists_all_nodes(monkeypatch, config, fake_manifest, fake_catalog):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+
+    index = json.loads((out / "api" / "v1" / "index.json").read_text(encoding="utf-8"))
+    node_ids_in_index = {n["id"] for n in index["nodes"]}
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    assert node_ids_in_index == set(data["nodes"].keys())
+
+
+def test_api_index_node_stub_shape(monkeypatch, config, fake_manifest, fake_catalog):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+
+    index = json.loads((out / "api" / "v1" / "index.json").read_text(encoding="utf-8"))
+    stub = next(n for n in index["nodes"] if n["id"] == "model.shop.customers")
+    assert stub["name"] == "customers"
+    assert stub["resource_type"] == "model"
+    assert stub["database"] == "db"
+    assert stub["schema"] == "analytics"
+    assert stub["node_url"] == "nodes/model.shop.customers.json"
+    assert "id" in stub
+    assert "label" in stub
+    assert "description" in stub
+
+
+def test_api_index_has_metadata_and_counts(monkeypatch, config, fake_manifest, fake_catalog):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+
+    index = json.loads((out / "api" / "v1" / "index.json").read_text(encoding="utf-8"))
+    assert "metadata" in index
+    assert "counts" in index
+    assert "generated_at" in index
+    assert index["counts"] == index["metadata"]["counts"]
+
+
+def test_api_per_node_file_is_self_contained(monkeypatch, config, fake_manifest, fake_catalog):
+    """Each per-node file has depends_on, referenced_by, and columnLineage slices."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+
+    node_file = out / "api" / "v1" / "nodes" / "model.shop.customers.json"
+    assert node_file.is_file()
+    node_doc = json.loads(node_file.read_text(encoding="utf-8"))
+
+    assert "depends_on" in node_doc
+    assert "referenced_by" in node_doc
+    assert "columnLineage" in node_doc
+    assert isinstance(node_doc["depends_on"], list)
+    assert isinstance(node_doc["referenced_by"], list)
+    assert isinstance(node_doc["columnLineage"], dict)
+    assert node_doc["id"] == "model.shop.customers"
+    assert node_doc["resource_type"] == "model"
+
+
+def test_api_per_node_lineage_values(monkeypatch, config, fake_manifest, fake_catalog):
+    """depends_on and referenced_by match the lineage graph from data dict."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    lineage = data["lineage"]
+
+    for node_id in data["nodes"]:
+        node_file = out / "api" / "v1" / "nodes" / f"{node_id}.json"
+        node_doc = json.loads(node_file.read_text(encoding="utf-8"))
+        assert node_doc["depends_on"] == lineage["parents"].get(node_id, [])
+        assert node_doc["referenced_by"] == lineage["children"].get(node_id, [])
+
+
+def test_api_per_node_column_lineage_slice(monkeypatch, config, fake_manifest, fake_catalog):
+    """columnLineage in per-node file contains only entries prefixed by that node id."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    for node_id in data["nodes"]:
+        node_file = out / "api" / "v1" / "nodes" / f"{node_id}.json"
+        node_doc = json.loads(node_file.read_text(encoding="utf-8"))
+        expected = {k: v for k, v in data["columnLineage"].items() if k.startswith(f"{node_id}.")}
+        assert node_doc["columnLineage"] == expected
+
+
+def test_api_lineage_json_matches_data_dict(monkeypatch, config, fake_manifest, fake_catalog):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    lineage = json.loads((out / "api" / "v1" / "lineage.json").read_text(encoding="utf-8"))
+    lineage_without_schema = {k: v for k, v in lineage.items() if k != "$schema"}
+    assert lineage_without_schema == data["lineage"]
+
+
+def test_api_health_json_matches_data_dict(monkeypatch, config, fake_manifest, fake_catalog):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    health = json.loads((out / "api" / "v1" / "health.json").read_text(encoding="utf-8"))
+    health_without_schema = {k: v for k, v in health.items() if k != "$schema"}
+    assert health_without_schema == data["health"]
+
+
+def test_api_output_is_deterministic(monkeypatch, config, fake_manifest, fake_catalog):
+    """Two generate() runs must produce byte-for-byte identical api/v1 files."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    monkeypatch.setattr("dbdocs.site.builder.datetime", _FrozenDatetime)
+    builder = ReportBuilder(config)
+
+    out1 = Path(builder.generate())
+    snapshots_1 = {p.name: p.read_bytes() for p in (out1 / "api" / "v1").rglob("*.json")}
+
+    out2 = Path(builder.generate())
+    snapshots_2 = {p.name: p.read_bytes() for p in (out2 / "api" / "v1").rglob("*.json")}
+
+    assert set(snapshots_1) == set(snapshots_2)
+    for name in snapshots_1:
+        assert snapshots_1[name] == snapshots_2[name], f"api/v1/{name} differs between runs"
+
+
+def test_api_per_node_file_for_every_node(monkeypatch, config, fake_manifest, fake_catalog):
+    """There must be exactly one nodes/<id>.json per node in data['nodes']."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    node_files = {p.stem for p in (out / "api" / "v1" / "nodes").iterdir()}
+    assert node_files == set(data["nodes"].keys())
+
+
+def test_api_unsafe_id_skipped(monkeypatch, config, fake_manifest, fake_catalog):
+    """A node whose unique_id contains '/' is skipped; no file is written for it."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+
+    original_build = ReportBuilder.build_data
+
+    def patched_build(self):
+        data = original_build(self)
+        data["nodes"]["bad/id"] = {
+            "id": "bad/id",
+            "name": "bad",
+            "label": "bad",
+            "resource_type": "model",
+            "database": "db",
+            "schema": "s",
+            "description": "",
+        }
+        return data
+
+    monkeypatch.setattr(ReportBuilder, "build_data", patched_build)
+    out = Path(ReportBuilder(config).generate())
+
+    node_files = {p.name for p in (out / "api" / "v1" / "nodes").iterdir()}
+    assert not any("bad" in f for f in node_files)
+
+
+def test_unsafe_id_chars_constant():
+    assert "/" in _UNSAFE_ID_CHARS
+    assert "\\" in _UNSAFE_ID_CHARS
+
+
+def test_serialize_is_deterministic(config):
+    """_serialize must produce sort_keys=True compact JSON bytes."""
+    builder = ReportBuilder(config)
+    value = {"z": 1, "a": 2, "m": [3, 1, 2]}
+    result = builder._serialize(value)
+    assert result == b'{"a":2,"m":[3,1,2],"z":1}'
+
+
+def test_serialize_used_for_main_payload(monkeypatch, config, fake_manifest, fake_catalog):
+    """The main dbdocs-data.json must equal _serialize(data) output."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+
+    plain = (out / "dbdocs-data.json").read_bytes()
+    data = json.loads(plain)
+    builder = ReportBuilder(config)
+    assert plain == builder._serialize(data)
+
+
+# ---------------------------------------------------------------------------
+# JSON Schema drift guard
+# ---------------------------------------------------------------------------
+
+_SCHEMA_DOC_PAIRS = [
+    ("schema/index.schema.json", "index.json"),
+    ("schema/lineage.schema.json", "lineage.json"),
+    ("schema/health.schema.json", "health.json"),
+]
+
+
+@pytest.fixture
+def api_out(monkeypatch, config, fake_manifest, fake_catalog):
+    """Generated site output directory with api/v1/ populated."""
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    return Path(ReportBuilder(config).generate()) / "api" / "v1"
+
+
+def test_api_schema_files_are_written(api_out):
+    """generate() must write all four schema files under api/v1/schema/."""
+    for filename in SCHEMA_FILES:
+        assert (api_out / "schema" / filename).is_file(), f"missing schema/{filename}"
+
+
+def test_api_schema_files_are_valid_draft2020(api_out):
+    """Every emitted schema file must itself be a valid Draft 2020-12 schema."""
+    for filename in SCHEMA_FILES:
+        raw = json.loads((api_out / "schema" / filename).read_text(encoding="utf-8"))
+        Draft202012Validator.check_schema(raw)
+
+
+@pytest.mark.parametrize("schema_rel, doc_rel", _SCHEMA_DOC_PAIRS)
+def test_api_doc_schema_pointer_exists(api_out, schema_rel, doc_rel):
+    """Each emitted doc carries a $schema key pointing at an existing schema file."""
+    doc = json.loads((api_out / doc_rel).read_text(encoding="utf-8"))
+    assert "$schema" in doc, f"{doc_rel} is missing a $schema key"
+    schema_path = api_out / doc["$schema"]
+    assert schema_path.is_file(), f"{doc_rel}.$schema → {doc['$schema']} not found on disk"
+
+
+def test_api_node_doc_schema_pointer_exists(api_out):
+    """Every per-node file carries a $schema pointing at the node schema."""
+    for node_file in (api_out / "nodes").iterdir():
+        doc = json.loads(node_file.read_text(encoding="utf-8"))
+        assert "$schema" in doc, f"{node_file.name} is missing a $schema key"
+        schema_path = (api_out / "nodes") / doc["$schema"]
+        assert schema_path.is_file(), (
+            f"{node_file.name}.$schema → {doc['$schema']} not found on disk"
+        )
+
+
+@pytest.mark.parametrize("schema_rel, doc_rel", _SCHEMA_DOC_PAIRS)
+def test_api_doc_validates_against_schema(api_out, schema_rel, doc_rel):
+    """Each top-level doc validates against its committed schema."""
+    schema = json.loads((api_out / schema_rel).read_text(encoding="utf-8"))
+    doc = json.loads((api_out / doc_rel).read_text(encoding="utf-8"))
+    Draft202012Validator(schema).validate(doc)
+
+
+def test_api_node_docs_validate_against_node_schema(api_out):
+    """Every per-node file validates against node.schema.json."""
+    schema = json.loads((api_out / "schema" / "node.schema.json").read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema)
+    for node_file in (api_out / "nodes").iterdir():
+        doc = json.loads(node_file.read_text(encoding="utf-8"))
+        validator.validate(doc)
+
+
+def test_api_schema_literals_match_emitted_files(api_out):
+    """The in-memory SCHEMA_FILES constants must exactly match what was written to disk."""
+    for filename, schema_dict in SCHEMA_FILES.items():
+        on_disk = (api_out / "schema" / filename).read_bytes()
+        expected = json.dumps(schema_dict, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        assert on_disk == expected, f"schema/{filename} on disk differs from SCHEMA_FILES constant"
+
+
+# ---------------------------------------------------------------------------
+# _invert_column_lineage unit tests
+# ---------------------------------------------------------------------------
+
+
+def test_invert_column_lineage_empty():
+    assert _invert_column_lineage({}) == {}
+
+
+def test_invert_column_lineage_single_edge():
+    flat = {"model.shop.orders.amount": [{"node": "model.shop.stg_orders", "column": "amount"}]}
+    result = _invert_column_lineage(flat)
+    assert result == {
+        "model.shop.stg_orders.amount": [{"node": "model.shop.orders", "column": "amount"}]
+    }
+
+
+def test_invert_column_lineage_multiple_downstream_dependents():
+    flat = {
+        "model.shop.orders.customer_id": [{"node": "model.shop.customers", "column": "id"}],
+        "model.shop.summaries.customer_id": [{"node": "model.shop.customers", "column": "id"}],
+    }
+    result = _invert_column_lineage(flat)
+    children = result["model.shop.customers.id"]
+    assert len(children) == 2
+    assert {"node": "model.shop.orders", "column": "customer_id"} in children
+    assert {"node": "model.shop.summaries", "column": "customer_id"} in children
+
+
+def test_invert_column_lineage_multiple_upstream_sources():
+    flat = {
+        "model.shop.combined.val": [
+            {"node": "model.shop.a", "column": "val"},
+            {"node": "model.shop.b", "column": "val"},
+        ]
+    }
+    result = _invert_column_lineage(flat)
+    assert result["model.shop.a.val"] == [{"node": "model.shop.combined", "column": "val"}]
+    assert result["model.shop.b.val"] == [{"node": "model.shop.combined", "column": "val"}]
+
+
+def test_invert_is_linear_in_edges():
+    flat = {
+        f"model.shop.m{i}.col": [{"node": "source.shop.s", "column": "col"}] for i in range(100)
+    }
+    result = _invert_column_lineage(flat)
+    assert len(result["source.shop.s.col"]) == 100
+
+
+# ---------------------------------------------------------------------------
+# columnLineageMeta in build_data
+# ---------------------------------------------------------------------------
+
+
+def test_build_data_has_column_lineage_meta(monkeypatch, config, fake_manifest, fake_catalog):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    data = ReportBuilder(config).build_data()
+    assert "columnLineageMeta" in data
+    assert "skipped" in data["columnLineageMeta"]
+    assert isinstance(data["columnLineageMeta"]["skipped"], int)
+
+
+# ---------------------------------------------------------------------------
+# column-lineage.json — new whole-graph file
+# ---------------------------------------------------------------------------
+
+
+def test_generate_writes_column_lineage_json(api_out):
+    assert (api_out / "column-lineage.json").is_file()
+
+
+def test_column_lineage_json_shape(api_out):
+    doc = json.loads((api_out / "column-lineage.json").read_text(encoding="utf-8"))
+    assert "$schema" in doc
+    assert "skipped" in doc
+    assert isinstance(doc["skipped"], int)
+    assert "edges" in doc
+    assert isinstance(doc["edges"], dict)
+    assert "children" in doc
+    assert isinstance(doc["children"], dict)
+
+
+def test_column_lineage_json_schema_pointer_exists(api_out):
+    doc = json.loads((api_out / "column-lineage.json").read_text(encoding="utf-8"))
+    schema_path = api_out / doc["$schema"]
+    assert schema_path.is_file()
+
+
+def test_column_lineage_json_validates_against_schema(api_out):
+    schema = json.loads(
+        (api_out / "schema" / "column-lineage.schema.json").read_text(encoding="utf-8")
+    )
+    doc = json.loads((api_out / "column-lineage.json").read_text(encoding="utf-8"))
+    Draft202012Validator(schema).validate(doc)
+
+
+def test_column_lineage_edges_match_data_dict(monkeypatch, config, fake_manifest, fake_catalog):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    doc = json.loads((out / "api" / "v1" / "column-lineage.json").read_text(encoding="utf-8"))
+    assert doc["edges"] == data["columnLineage"]
+
+
+def test_column_lineage_children_is_inversion_of_edges(
+    monkeypatch, config, fake_manifest, fake_catalog
+):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    doc = json.loads((out / "api" / "v1" / "column-lineage.json").read_text(encoding="utf-8"))
+    assert doc["children"] == _invert_column_lineage(data["columnLineage"])
+
+
+def test_column_lineage_skipped_matches_meta(monkeypatch, config, fake_manifest, fake_catalog):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    doc = json.loads((out / "api" / "v1" / "column-lineage.json").read_text(encoding="utf-8"))
+    assert doc["skipped"] == data["columnLineageMeta"]["skipped"]
+
+
+# ---------------------------------------------------------------------------
+# column_referenced_by slice in per-node files
+# ---------------------------------------------------------------------------
+
+
+def test_api_per_node_has_column_referenced_by(api_out):
+    for node_file in (api_out / "nodes").iterdir():
+        doc = json.loads(node_file.read_text(encoding="utf-8"))
+        assert "column_referenced_by" in doc, f"{node_file.name} missing column_referenced_by"
+        assert isinstance(doc["column_referenced_by"], dict)
+
+
+def test_api_per_node_column_referenced_by_slice(monkeypatch, config, fake_manifest, fake_catalog):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    inverted = _invert_column_lineage(data["columnLineage"])
+    for node_id in data["nodes"]:
+        node_file = out / "api" / "v1" / "nodes" / f"{node_id}.json"
+        doc = json.loads(node_file.read_text(encoding="utf-8"))
+        expected = {k: v for k, v in inverted.items() if k.startswith(f"{node_id}.")}
+        assert doc["column_referenced_by"] == expected
+
+
+def test_api_node_docs_with_column_referenced_by_validate_against_schema(api_out):
+    schema = json.loads((api_out / "schema" / "node.schema.json").read_text(encoding="utf-8"))
+    validator = Draft202012Validator(schema)
+    for node_file in (api_out / "nodes").iterdir():
+        doc = json.loads(node_file.read_text(encoding="utf-8"))
+        validator.validate(doc)

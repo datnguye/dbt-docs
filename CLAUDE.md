@@ -61,23 +61,24 @@ the same targets so the agentic and manual paths stay aligned.
 | Goal                                 | Task              | Slash command |
 |--------------------------------------|-------------------|---------------|
 | Sync the uv environment              | `task install`    | —             |
+| Install the graph app's npm deps     | `task frontend:install` | —       |
 | Format + autofix                     | `task format`     | —             |
 | Lint (format-check + ruff)           | `task lint`       | —             |
 | Run tests at 100% coverage           | `task test`       | `/test`       |
-| Build the generated site             | `task generate`   | `/generate`   |
-| Serve the generated site locally     | `task serve`      | `/docs`       |
-| Deploy a versioned build             | `task deploy`     | `/deploy`     |
+| Build the generated site             | —                 | `/generate`   |
+| Serve the generated site locally     | —                 | `/docs`       |
+| Deploy a versioned build             | —                 | `/deploy`     |
 | Cut a PyPI release                   | —                 | `/release`    |
 | Rebuild the React Flow graph bundle  | `task frontend:build` | —         |
 | Run the graph app's vitest units     | `task frontend:test`  | —         |
 | Run the Playwright E2E suite         | `task frontend:e2e`   | —         |
 | Install the Playwright browser       | `task frontend:e2e:install` | —   |
-| Deploy the versioned jaffle_shop demo| `task demo`       | —             |
 | Build demo + serve mkdocs (embedded) | `task demo:docs`  | —             |
-| Serve the project docs (mkdocs)      | `task docs:serve` | —             |
-| Build the project docs (strict)      | `task docs:build` | —             |
+| Install the git hooks                | `task git-hooks`  | —             |
+| Remove generated artefacts + caches  | `task clean`      | —             |
 
-`task --list` shows everything.
+`task --list` shows everything. The site `generate`/`serve`/`deploy` goals are
+run via the `dbdocs` CLI (or the matching slash command), not a `task` target.
 
 ### Project docs vs the generated product
 

@@ -10,7 +10,6 @@ test.describe("catalog + navigation", () => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => {
-      // The unversioned-build versions.json probe 404s by design (caught).
       if (m.type() === "error" && !/versions\.json/.test(m.text())) errors.push(m.text());
     });
 
@@ -32,7 +31,6 @@ test.describe("catalog + navigation", () => {
     await expect(firstNode).toBeVisible();
     await firstNode.click();
     await expect(page.locator("#app h1")).toBeVisible();
-    // The Columns table is present (a node page may also carry a Tests table).
     await expect(page.locator("#app table").first()).toBeVisible();
   });
 
@@ -48,7 +46,6 @@ test.describe("catalog + navigation", () => {
     await page.goto("index.html");
     const healthIcon = page.locator('[data-nav="health"] .ic--health');
     await expect(healthIcon).toBeVisible();
-    // The mask data-URI must be resolved (a real url(), not empty/none).
     const mask = await healthIcon.evaluate(
       (el) => getComputedStyle(el).maskImage || getComputedStyle(el).webkitMaskImage,
     );
@@ -62,15 +59,12 @@ test.describe("catalog + navigation", () => {
     await expect(filter).toBeVisible();
     const ordersItem = page.locator('#sidebar li[data-filter] a[data-node="model.jaffle_shop.orders"]');
     const customersItem = page.locator('#sidebar li[data-filter] a[data-node="model.jaffle_shop.customers"]');
-    // Filter by bare table name.
     await filter.fill("orders");
     await expect(ordersItem).toBeVisible();
     await expect(customersItem).toBeHidden();
-    // Filter by fully-qualified database.schema.table.
     await filter.fill("shaman.jf_analytics.customers");
     await expect(customersItem).toBeVisible();
     await expect(ordersItem).toBeHidden();
-    // Clearing restores the full tree.
     await filter.fill("");
     await expect(ordersItem).toBeVisible();
     await expect(customersItem).toBeVisible();
@@ -81,8 +75,6 @@ test.describe("catalog + navigation", () => {
     await page.goto("index.html");
     const sidebar = page.locator(".sidebar-col");
     await expect(sidebar).toBeVisible();
-    // The « collapse handle lives on the sidebar's divider edge (hover-revealed),
-    // not the top-left corner.
     await sidebar.hover();
     await page.locator("#nav-collapse").click();
     await expect(page.locator("body")).toHaveClass(/nav-collapsed/);
@@ -90,8 +82,6 @@ test.describe("catalog + navigation", () => {
       const box = await sidebar.boundingBox();
       expect(box?.width ?? 0).toBeLessThan(2);
     }).toPass();
-    // A » rail appears, flush to the left edge and vertically centered (not
-    // floating mid-content at the top).
     const rail = page.locator("#nav-reopen");
     await expect(rail).toBeVisible();
     const railBox = await rail.boundingBox();
@@ -118,8 +108,6 @@ test.describe("search", () => {
 
   test("matches on a column name the full-text index covers", async ({ page }) => {
     await page.goto("index.html");
-    // count_food_items is a column of model.jaffle_shop.orders — not a model name,
-    // so a hit proves the index reaches column names, not just labels.
     await page.fill("#search", "count_food_items");
     const result = page.locator("#search-results a").first();
     await expect(result).toBeVisible();
@@ -129,16 +117,12 @@ test.describe("search", () => {
 
   test("a non-name hit shows a match-reason snippet (mkdocs-material style)", async ({ page }) => {
     await page.goto("index.html");
-    // count_food_items only lives in a column, so the result must explain *why*
-    // it matched: a snippet labelled with the matched field + the term marked.
     await page.fill("#search", "count_food_items");
-    const result = page.locator("#search-results a").first();
+    const result = page.locator('#search-results a[href="#/node/model.jaffle_shop.orders"]');
     await expect(result).toBeVisible();
     const snippet = result.locator(".sr-snippet").first();
     await expect(snippet).toBeVisible();
     await expect(snippet.locator(".sr-snippet-field")).toContainText(/Column/i);
-    // MiniSearch tokenizes count_food_items into count/food/items, so the marked
-    // terms are the tokens — assert at least one matched token is highlighted.
     await expect(snippet.locator("mark").first()).toContainText(/count|food|items/);
   });
   test("a snippet never repeats the title's own field (name/label)", async ({ page }) => {
@@ -146,16 +130,12 @@ test.describe("search", () => {
     await page.fill("#search", "stg_locations");
     const result = page.locator("#search-results a").first();
     await expect(result).toContainText("stg_locations");
-    // The title carries the name; any snippet is for a *different* field that also
-    // matched (relation/SQL/…), never a redundant "Name" snippet.
     const fields = await result.locator(".sr-snippet-field").allTextContents();
     for (const f of fields) expect(f).not.toMatch(/^Name$/i);
   });
 
   test("type:<resource_type> with no text lists only that type", async ({ page }) => {
     await page.goto("index.html");
-    // Bare `type:seed` lists every seed and nothing else (the fixture's seeds are
-    // the raw_* tables; no model/source should appear).
     await page.fill("#search", "type:seed");
     const rows = page.locator("#search-results a");
     await expect(rows.first()).toBeVisible();
@@ -167,8 +147,6 @@ test.describe("search", () => {
 
   test("type:<resource_type> scopes a text query to that type", async ({ page }) => {
     await page.goto("index.html");
-    // `type:model orders` finds models matching "orders" — never the seeds/sources
-    // that also carry the token.
     await page.fill("#search", "type:model orders");
     const metas = await page.locator("#search-results a .sr-meta").allTextContents();
     expect(metas.length).toBeGreaterThan(0);
@@ -177,8 +155,6 @@ test.describe("search", () => {
 
   test("label:<text> matches names only, skipping SQL/description noise", async ({ page }) => {
     await page.goto("index.html");
-    // Every hit's title must contain "stg" — a label-scoped query must not surface
-    // a model that only mentions a staging table in its SQL body.
     await page.fill("#search", "label:stg");
     const titles = await page.locator("#search-results a .sr-title").allTextContents();
     expect(titles.length).toBeGreaterThan(0);
@@ -187,14 +163,11 @@ test.describe("search", () => {
 
   test("a non-empty query with no hits shows a 'No matches.' cue", async ({ page }) => {
     await page.goto("index.html");
-    // type:bogus is a valid operator with an unmatched value — the dropdown must
-    // explain there are no results, not silently hide.
     await page.fill("#search", "type:bogus");
     const dropdown = page.locator("#search-results");
     await expect(dropdown).toBeVisible();
     await expect(dropdown.locator(".sr-empty")).toContainText("No matches");
     await expect(dropdown.locator("a")).toHaveCount(0);
-    // ...and the live region announces it too.
     await expect(page.locator("#search-status")).toContainText("No matches");
   });
 
@@ -202,18 +175,13 @@ test.describe("search", () => {
     await page.goto("index.html");
     const input = page.locator("#search");
     const results = page.locator("#search-results");
-    // Closed: combobox advertises a controlled, collapsed listbox.
     await expect(input).toHaveAttribute("role", "combobox");
     await expect(input).toHaveAttribute("aria-controls", "search-results");
     await expect(input).toHaveAttribute("aria-expanded", "false");
     await expect(results).toHaveAttribute("role", "listbox");
-    // Open: aria-expanded flips and each row is an option.
     await page.fill("#search", "orders");
     await expect(input).toHaveAttribute("aria-expanded", "true");
     await expect(results.locator('a[role="option"]').first()).toBeVisible();
-    // The count is announced via a separate live region (role=status), not the
-    // listbox itself — so a screen reader hears "N results." without the option
-    // list being re-read on every keystroke.
     const status = page.locator("#search-status");
     await expect(status).toHaveAttribute("role", "status");
     await expect(results).not.toHaveAttribute("aria-live", /.*/);
@@ -226,15 +194,12 @@ test.describe("search", () => {
     const results = page.locator("#search-results");
     await page.fill("#search", "orders");
     await expect(results.locator('a[role="option"]').first()).toBeVisible();
-    // ↓ selects the first row: it gets .active + aria-selected, and the input
-    // points its aria-activedescendant at it (focus stays on the input).
     await input.press("ArrowDown");
     const active = results.locator("a.active");
     await expect(active).toHaveCount(1);
     await expect(active).toHaveAttribute("aria-selected", "true");
     const activeId = await active.getAttribute("id");
     await expect(input).toHaveAttribute("aria-activedescendant", activeId!);
-    // Enter navigates to the roved node and closes the dropdown.
     await input.press("Enter");
     await expect(results).toBeHidden();
     await expect(input).toHaveAttribute("aria-expanded", "false");
@@ -265,21 +230,16 @@ test.describe("column-level lineage", () => {
   });
 
   test("downstream impact column header renders and chips deep-link to the dependent column", async ({ page }) => {
-    // stg_customers.customer_id feeds customers.customer_id and
-    // dim_customer_segment.customer_id — a guaranteed downstream in the fixture.
     await page.goto("index.html#/node/model.jaffle_shop.stg_customers");
 
-    // The "Downstream impact" column header must be present in the Columns table.
     const header = page.locator("table th").filter({ hasText: "Downstream impact" });
     await expect(header).toBeVisible();
 
-    // At least one downstream chip must exist and its link must carry ?col=.
     const chip = page.locator(".up-chip a").first();
     await expect(chip).toBeVisible();
     const href = await chip.getAttribute("href");
     expect(href).toMatch(/\?col=/);
 
-    // Clicking the chip navigates to the dependent node with the ?col= deep-link.
     await chip.click();
     await expect(page).toHaveURL(/\?col=/);
   });
@@ -301,11 +261,7 @@ test.describe("graphs", () => {
     await page.goto("index.html#/dag");
     const node = page.locator(".react-flow__node").first();
     await expect(node).toBeVisible();
-    // React Flow adds the `draggable` class only when nodesDraggable is on.
     await expect(node).not.toHaveClass(/draggable/);
-    // Dragging a node drags the *canvas* (pan), not the node: the node and a
-    // sibling keep the same relative offset (an individually-dragged node would
-    // shift relative to its neighbour).
     const sibling = page.locator(".react-flow__node").nth(1);
     await expect(sibling).toBeVisible();
     const beforeNode = await node.boundingBox();
@@ -323,7 +279,6 @@ test.describe("graphs", () => {
   });
 
   test("a filter that matches no nodes shows a 'no match' message, not 'too many models'", async ({ page }) => {
-    // Sources only live in schema 'raw'; source + jf_analytics matches nothing.
     await page.goto("index.html#/dag?rtype=source&schema=jf_analytics");
     const empty = page.locator(".dbd-graph-empty");
     await expect(empty).toBeVisible();
@@ -340,55 +295,133 @@ test.describe("graphs", () => {
   });
 
   test("the model_contract algo detects FK relationships and renders the ERD", async ({ page }) => {
-    // The demo is built with `algo: model_contract` (docs/dbdocs-demo.yml), so
-    // dbterd derives FKs from each model's contract constraints rather than from
-    // `relationships` tests. orders' contract has location_id → locations and is
-    // referenced by fct_customer_segment_orders, so its per-node ERD windows to
-    // orders plus those two directly-related tables.
     await page.goto("index.html#/node/model.jaffle_shop.orders");
-    // No empty-state placeholder — model_contract detected relationships.
     await expect(page.locator(".dbd-graph-empty")).toHaveCount(0);
     const tables = page.locator(".dbd-erd");
     await expect(tables.first()).toBeVisible();
     await expect(tables).toHaveCount(3);
-    // entity_name_format: table → the label is the bare model name.
     await expect(page.locator(".dbd-erd-focus .dbd-erd-name")).toHaveText("orders");
     await expect(page.locator(".react-flow__edge")).toHaveCount(2);
-    // model_contract populates PK/FK badges from the contract: orders carries a
-    // PK (order_id) and an FK (location_id) — test_relationship would not.
     const focus = page.locator(".dbd-erd-focus");
     await expect(focus.locator(".dbd-erd-badge.dbd-pk")).toHaveCount(1);
     await expect(focus.locator(".dbd-erd-badge.dbd-fk")).toHaveCount(1);
   });
 });
 
-test.describe("deep-link URL state (B1 + B2)", () => {
-  test("selecting the resource-type filter writes rtype= into location.hash", async ({ page }) => {
+test.describe("DAG layer segmented control", () => {
+  test("default DAG load shows the Catalog segment active and only physical nodes", async ({ page }) => {
     await page.goto("index.html#/dag");
-    // Wait for the DAG graph toolbar to appear (React rendered)
-    const select = page.locator(".dbd-toolbar select").first();
-    await expect(select).toBeVisible();
-    await select.selectOption("model");
-    // The hash should now contain rtype=model (written by the useEffect via replaceState)
+    const catalog = page.locator(".dbd-layer-seg button", { hasText: "Catalog" });
+    await expect(catalog).toBeVisible();
+    await expect(catalog).toHaveClass(/active/);
+    const semantic = page.locator(".dbd-layer-seg button", { hasText: "Semantic" });
+    await expect(semantic).toBeVisible();
+    await expect(semantic).not.toHaveClass(/active/);
+  });
+
+  test("switching to Semantic Layer segment changes the Types trigger label", async ({ page }) => {
+    await page.goto("index.html#/dag");
+    const trigger = page.locator(".dbd-multi-trigger");
+    await expect(trigger).toBeVisible();
+
+    await expect(trigger).toContainText("Types: All");
+
+    const semantic = page.locator(".dbd-layer-seg button", { hasText: "Semantic" });
+    await semantic.click();
+    await expect(semantic).toHaveClass(/active/);
+
     await expect(async () => {
       const hash = await page.evaluate(() => location.hash);
-      expect(hash).toContain("rtype=model");
+      expect(hash).toContain("layer=semantic");
+    }).toPass({ timeout: 3000 });
+
+    await expect(trigger).toContainText("Types: All");
+
+    const catalog = page.locator(".dbd-layer-seg button", { hasText: "Catalog" });
+    await catalog.click();
+    await expect(catalog).toHaveClass(/active/);
+    await expect(async () => {
+      const hash = await page.evaluate(() => location.hash);
+      expect(hash).not.toContain("layer=");
     }).toPass({ timeout: 3000 });
   });
 
-  test("navigating to a DAG hash with rtype= restores the filter select value", async ({ page }) => {
+  test("Semantic Layer segment writes layer=semantic into location.hash", async ({ page }) => {
+    await page.goto("index.html#/dag");
+    const semantic = page.locator(".dbd-layer-seg button", { hasText: "Semantic" });
+    await expect(semantic).toBeVisible();
+    await semantic.click();
+    await expect(async () => {
+      const hash = await page.evaluate(() => location.hash);
+      expect(hash).toContain("layer=semantic");
+    }).toPass({ timeout: 3000 });
+  });
+
+  test("navigating to #/dag?layer=semantic restores the Semantic Layer segment", async ({ page }) => {
+    await page.goto("index.html#/dag?layer=semantic");
+    const semantic = page.locator(".dbd-layer-seg button", { hasText: "Semantic" });
+    await expect(semantic).toBeVisible();
+    await expect(semantic).toHaveClass(/active/);
+  });
+
+  test("All segment writes layer=all into location.hash", async ({ page }) => {
+    await page.goto("index.html#/dag");
+    const all = page.locator(".dbd-layer-seg button", { hasText: "All" });
+    await expect(all).toBeVisible();
+    await all.click();
+    await expect(async () => {
+      const hash = await page.evaluate(() => location.hash);
+      expect(hash).toContain("layer=all");
+    }).toPass({ timeout: 3000 });
+  });
+
+  test("Other segment writes layer=other into location.hash", async ({ page }) => {
+    await page.goto("index.html#/dag");
+    const other = page.locator(".dbd-layer-seg button", { hasText: "Other" });
+    await expect(other).toBeVisible();
+    await other.click();
+    await expect(async () => {
+      const hash = await page.evaluate(() => location.hash);
+      expect(hash).toContain("layer=other");
+    }).toPass({ timeout: 3000 });
+  });
+
+  test("back-compat: existing #/dag?rtype=model link loads correctly with Catalog as default", async ({ page }) => {
+    await page.goto("index.html#/dag?rtype=model");
+    const catalog = page.locator(".dbd-layer-seg button", { hasText: "Catalog" });
+    await expect(catalog).toBeVisible();
+    await expect(catalog).toHaveClass(/active/);
+    const trigger = page.locator(".dbd-multi-trigger");
+    await expect(trigger).toContainText("Models");
+  });
+});
+
+test.describe("deep-link URL state (B1 + B2)", () => {
+  test("selecting the resource-type filter writes rtype= into location.hash", async ({ page }) => {
+    await page.goto("index.html#/dag");
+    const trigger = page.locator(".dbd-multi-trigger");
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+    const panel = page.locator(".dbd-multi-panel");
+    await expect(panel).toBeVisible();
+    const sourceCheckbox = panel.locator("label", { hasText: "Sources" }).locator("input");
+    await sourceCheckbox.click();
+    await expect(async () => {
+      const hash = await page.evaluate(() => location.hash);
+      expect(hash).toContain("rtype=");
+      expect(hash).toContain("source");
+    }).toPass({ timeout: 3000 });
+  });
+
+  test("navigating to a DAG hash with rtype= restores the filter trigger label", async ({ page }) => {
     await page.goto("index.html#/dag?rtype=source");
-    const select = page.locator(".dbd-toolbar select").first();
-    await expect(select).toBeVisible();
-    // The select should be seeded from the dataset attr (forwarded from the hash)
-    await expect(select).toHaveValue("source");
+    const trigger = page.locator(".dbd-multi-trigger");
+    await expect(trigger).toBeVisible();
+    await expect(trigger).toContainText("Sources");
   });
 
   test("arriving at a DAG hash with focus= preserves the focus (no clobber)", async ({ page }) => {
-    // The replaceState effect must NOT strip an incoming focus= on mount: search
-    // seeds from the focused node's label so focusId re-resolves to the same id.
     await page.goto("index.html");
-    // Grab a real node id from the rendered sidebar tree.
     const focusId = await page.locator("[data-node]").first().getAttribute("data-node");
     expect(focusId).toBeTruthy();
     await page.goto("index.html#/dag?focus=" + encodeURIComponent(focusId as string));
@@ -400,9 +433,8 @@ test.describe("deep-link URL state (B1 + B2)", () => {
 
   test("selecting the schema filter writes schema= into location.hash", async ({ page }) => {
     await page.goto("index.html#/dag");
-    const schemaSelect = page.locator(".dbd-toolbar select").nth(1);
+    const schemaSelect = page.locator(".dbd-toolbar select").first();
     await expect(schemaSelect).toBeVisible();
-    // Pick the first non-empty schema option
     const options = schemaSelect.locator("option");
     const count = await options.count();
     if (count > 1) {
@@ -418,26 +450,20 @@ test.describe("deep-link URL state (B1 + B2)", () => {
   });
 
   test("copy-link button exists on node page and flips label on click", async ({ page, context }) => {
-    // Grant clipboard permission so writeText doesn't throw in headless Chromium
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.goto("index.html#/node/model.jaffle_shop.orders");
     const btn = page.locator(".copy-link-btn").first();
     await expect(btn).toBeVisible();
-    // The button should start with "Copy link"
     await expect(btn).toContainText("Copy link");
     await btn.click();
-    // After click the label briefly changes to "Copied!" and the .copied accent
-    // class is toggled on (the live CSS feedback path).
     await expect(btn).toContainText("Copied!");
     await expect(btn).toHaveClass(/copied/);
-    // Then reverts back to "Copy link" and drops the .copied class after the timeout
     await expect(btn).toContainText("Copy link", { timeout: 3000 });
     await expect(btn).not.toHaveClass(/copied/);
   });
 
   test("copy-link button exists on DAG page", async ({ page }) => {
     await page.goto("index.html#/dag");
-    // Wait for the page to render (the graph is async)
     await expect(page.locator(".page-head")).toBeVisible();
     const btn = page.locator(".page-head .copy-link-btn");
     await expect(btn).toBeVisible();
@@ -446,9 +472,6 @@ test.describe("deep-link URL state (B1 + B2)", () => {
 });
 
 test.describe("health check", () => {
-  // The demo build (docs/dbdocs-demo.yml) ships a run_results sample alongside
-  // the artifacts, so the Health page renders all six DPE dimensions (manifest-
-  // derived) plus the per-test pass/fail detail under the testing dimension.
   test("a Health Check nav entry appears and opens the findings page", async ({ page }) => {
     await page.goto("index.html");
     const nav = page.locator('[data-nav="health"]');
@@ -464,7 +487,6 @@ test.describe("health check", () => {
     const card = page.locator(".health-card");
     await expect(card).toBeVisible();
     await expect(card.locator(".health-card-title")).toContainText("Health Check");
-    // The card embeds the scorecard (one chip per dimension).
     await expect(card.locator(".health-scorecard .score-chip").first()).toBeVisible();
     await card.locator(".health-card-link").click();
     await expect(page).toHaveURL(/#\/health$/);
@@ -472,11 +494,9 @@ test.describe("health check", () => {
 
   test("an overview scorecard chip deep-links to its dimension section", async ({ page }) => {
     await page.goto("index.html#/overview");
-    // Click the Structure chip on the overview card.
     const chip = page.locator(".health-card .score-chip", { hasText: "Structure" });
     await chip.click();
     await expect(page).toHaveURL(/#\/health\?d=structure/);
-    // That dimension's section is rendered, open, and its body visible.
     const section = page.locator("#health-structure");
     await expect(section).toBeVisible();
     await expect(section).toHaveJSProperty("open", true);
@@ -487,39 +507,31 @@ test.describe("health check", () => {
     await page.goto("index.html#/health");
     const chips = page.locator("#app .health-scorecard .score-chip");
     await expect(chips).toHaveCount(6);
-    // Each chip shows a score percentage.
     await expect(chips.first().locator(".score-num")).toContainText(/%/);
-    // One collapsible section per dimension.
     await expect(page.locator("details.health-section")).toHaveCount(6);
   });
 
   test("a dimension section lists rule findings with node deep-links", async ({ page }) => {
     await page.goto("index.html#/health");
-    // The Structure dimension has naming-convention findings in the demo.
     const section = page.locator("details.health-section", { hasText: "Structure" });
     await expect(section).toBeVisible();
-    // A per-rule block with a node table is present.
     await expect(section.locator(".health-rule").first()).toBeVisible();
     const nodeLink = section.locator('a[href^="#/node/"]').first();
     await expect(nodeLink).toBeVisible();
   });
 
   test("the health page no longer embeds per-test results", async ({ page }) => {
-    // Test pass/fail detail moved to model pages; the Health page is dimensions only.
     await page.goto("index.html#/health");
     await expect(page.locator(".health-testresults")).toHaveCount(0);
   });
 
   test("a model page shows its data-test results with reconciling pills", async ({ page }) => {
-    // stg_customers has unique/not_null tests in the demo run_results.
     await page.goto("index.html#/node/model.jaffle_shop.stg_customers");
-    const tests = page.locator(".node-tests");
+    const tests = page.locator("#node-sec-tests");
     await expect(tests).toBeVisible();
-    await expect(tests.locator("h2")).toContainText("Tests");
-    // The data-tests subsection is present (the fixture has no unit tests).
+    await expect(tests.locator(".node-section-title")).toContainText("Tests");
     await expect(tests.locator("h3", { hasText: "Data tests" })).toBeVisible();
     await expect(tests.locator(".health-status").first()).toBeVisible();
-    // Pills reconcile: non-total pills sum to total.
     const labels = await tests.locator(".health-pills .health-pill").allTextContents();
     const num = (s: string) => parseInt(s.trim().split(/\s+/)[0], 10) || 0;
     let total = 0;
@@ -534,10 +546,8 @@ test.describe("health check", () => {
 
   test("dimension sections are collapsible (toggle on click)", async ({ page }) => {
     await page.goto("index.html#/health");
-    // The Structure dimension has issues, so it's open by default.
     const section = page.locator("details.health-section", { hasText: "Structure" });
     await expect(section).toHaveJSProperty("open", true);
-    // Click the title (a stable target inside the summary) to collapse / expand.
     const title = section.locator(".health-section-title");
     await title.click();
     await expect(section).toHaveJSProperty("open", false);
@@ -655,11 +665,10 @@ test.describe("overview ERD — toolbar, focus, full-screen", () => {
 
   test("model-page Related ERD has its own full-screen button", async ({ page }) => {
     await page.goto("index.html#/node/model.jaffle_shop.orders");
-    const erdSection = page
-      .locator(".page-head")
-      .filter({ has: page.locator("h2", { hasText: "Related ERD" }) });
+    const erdSection = page.locator("#node-sec-erd");
     await expect(erdSection).toBeVisible();
-    const fsBtn = erdSection.locator(".fs-btn");
+    await expect(erdSection.locator(".node-section-title")).toHaveText("Related ERD");
+    const fsBtn = erdSection.locator(".node-section-summary-actions .fs-btn");
     await expect(fsBtn).toBeVisible();
     await expect(fsBtn).toContainText("Full screen");
   });
@@ -671,6 +680,26 @@ test.describe("overview ERD — toolbar, focus, full-screen", () => {
     await expect(focused.locator(".dbd-erd-more")).toHaveCount(0);
     const cols = focused.locator(".dbd-erd-col");
     expect(await cols.count()).toBeGreaterThan(2);
+  });
+});
+
+test.describe("unit test page", () => {
+  const UT =
+    "unit_test.jaffle_shop.stg_locations.test_does_location_opened_at_trunc_to_date";
+
+  test("shows the given input and expected output fixture data as tables", async ({ page }) => {
+    await page.goto("index.html#/node/" + encodeURIComponent(UT));
+    const given = page.locator("#node-sec-given-0");
+    await expect(given).toBeVisible();
+    await expect(given.locator(".node-section-title")).toContainText("Given");
+    await expect(given.locator("thead th", { hasText: "NAME" })).toBeVisible();
+    await expect(given.locator("tbody")).toContainText("Vice City");
+
+    const expect_ = page.locator("#node-sec-expect");
+    await expect(expect_).toBeVisible();
+    await expect(expect_.locator(".node-section-title")).toContainText("Expected output");
+    await expect(expect_.locator("thead th", { hasText: "OPENED_DATE" })).toBeVisible();
+    await expect(expect_.locator("tbody")).toContainText("2016-09-01");
   });
 });
 
@@ -690,17 +719,14 @@ test.describe("mobile", () => {
   test("the sidebar collapses into a drawer the hamburger toggles", async ({ page }) => {
     await page.goto("index.html");
     const sidebar = page.locator(".sidebar-col");
-    // Off-canvas by default (translated out of view).
     const closed = await sidebar.boundingBox();
     expect(closed && closed.x).toBeLessThan(0);
     await page.locator("#nav-toggle").click();
     await expect(page.locator("body")).toHaveClass(/nav-open/);
-    // Slid on-screen once the open transition settles.
     await expect(async () => {
       const open = await sidebar.boundingBox();
       expect(open && open.x).toBeGreaterThanOrEqual(0);
     }).toPass();
-    // Navigating closes the drawer.
     await page.locator("#sidebar [data-node]").first().click();
     await expect(page.locator("body")).not.toHaveClass(/nav-open/);
   });

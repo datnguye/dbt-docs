@@ -57,6 +57,7 @@ dev = [
   "ruff>=0.4",
   "dbt-postgres>=1.5",
   "pdoc>=14.4.0",
+  "jsonschema>=4.20",
 ]
 docs = [
   "mkdocs>=1.6,<2.0",

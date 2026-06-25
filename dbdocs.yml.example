@@ -112,3 +112,14 @@ default_version: latest
 #   # register_rule("<dimension>", fn) at import time. Installed packages can also
 #   # ship rules via the `dbdocs.health_rules` entry-point group.
 #   # rules_module: my_project.dbdocs_health_rules
+
+# The pinned About link shows by default; set false to hide it.
+show_about: true
+
+# Links rendered on the About page as external CTA buttons. Each entry is a
+# {label, href} pair. Omit or leave empty for no extra links.
+# about_links:
+#   - label: "Sponsor ♥"
+#     href: "https://github.com/sponsors/datnguye"
+#   - label: "Request a feature"
+#     href: "https://www.linkedin.com/in/datnguye/"

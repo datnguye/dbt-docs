@@ -138,6 +138,16 @@ def test_status_value_none_falls_back():
     assert _status_value(None) == "unknown"
 
 
+def test_status_value_normalizes_success_alias_to_pass():
+    assert _status_value("success") == "pass"
+    assert _status_value("SUCCESS") == "pass"
+    assert _status_value(SimpleNamespace(value="success")) == "pass"
+
+
+def test_status_value_normalizes_ok_alias_to_pass():
+    assert _status_value("ok") == "pass"
+
+
 # ---------------------------------------------------------------------------
 # Unit: _short_name
 # ---------------------------------------------------------------------------
@@ -206,7 +216,8 @@ def test_resolve_metadata_from_manifest():
         )
     }
     ext = HealthCheckExtractor("x.json", manifest=_fake_manifest(nodes))
-    test_type, model, column = ext._resolve_metadata("test.p.not_null_orders_id.h")
+    uid = "test.p.not_null_orders_id.h"
+    test_type, model, column = ext._resolve_metadata(ext._nodes.get(uid), uid)
     assert test_type == "not_null"
     assert model == "orders"
     assert column == "id"
@@ -216,17 +227,69 @@ def test_resolve_metadata_singular_test_has_empty_type():
     # A singular (custom SQL) test has no test_metadata.
     nodes = {"test.p.assert_something.h": _manifest_node(test_type=None)}
     ext = HealthCheckExtractor("x.json", manifest=_fake_manifest(nodes))
-    test_type, model, column = ext._resolve_metadata("test.p.assert_something.h")
+    uid = "test.p.assert_something.h"
+    test_type, model, column = ext._resolve_metadata(ext._nodes.get(uid), uid)
     assert test_type == ""
     assert model == ""
 
 
 def test_resolve_metadata_falls_back_to_unique_id_when_no_manifest():
     ext = HealthCheckExtractor("x.json", manifest=None)
-    test_type, model, column = ext._resolve_metadata("test.p.unique_orders_id.h")
+    uid = "test.p.unique_orders_id.h"
+    test_type, model, column = ext._resolve_metadata(ext._nodes.get(uid), uid)
     assert test_type == "unique"
     assert model == ""
     assert column == ""
+
+
+def test_to_finding_surfaces_description_and_user_kwargs(tmp_path):
+    metadata = SimpleNamespace(
+        name="accepted_values",
+        kwargs={
+            "model": "{{ ref('customers') }}",
+            "column_name": "segment",
+            "accepted_values": ["bronze", "silver", "gold"],
+        },
+    )
+    node = SimpleNamespace(
+        test_metadata=metadata,
+        column_name="segment",
+        attached_node="model.p.customers",
+        description="Customer segment must be a known tier.",
+    )
+    path = tmp_path / "run_results.json"
+    _write_run_results(
+        path,
+        [
+            {
+                "unique_id": "test.p.accepted_values_customers_segment.h",
+                "status": "success",
+                "failures": 0,
+            }
+        ],
+    )
+    ext = HealthCheckExtractor(
+        str(path),
+        manifest=_fake_manifest({"test.p.accepted_values_customers_segment.h": node}),
+    )
+    result = ext.extract()
+    finding = result["testResults"]["categories"]["validity"][0]
+    assert finding["status"] == "pass"
+    assert finding["description"] == "Customer segment must be a known tier."
+    assert finding["kwargs"] == {"accepted_values": ["bronze", "silver", "gold"]}
+
+
+def test_to_finding_unit_test_has_empty_description_and_kwargs(tmp_path):
+    path = tmp_path / "run_results.json"
+    _write_run_results(
+        path,
+        [{"unique_id": "unit_test.p.orders.test_totals", "status": "pass"}],
+    )
+    ext = HealthCheckExtractor(str(path), manifest=_fake_manifest({}))
+    result = ext.extract()
+    finding = result["testResults"]["categories"]["unit"][0]
+    assert finding["description"] == ""
+    assert finding["kwargs"] == {}
 
 
 # ---------------------------------------------------------------------------

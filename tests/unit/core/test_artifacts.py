@@ -52,6 +52,12 @@ def test_node_name():
     assert artifacts.node_name("model.shop.customers") == "customers"
 
 
+def test_public_constants_exported():
+    assert artifacts.CODE_ONLY_PREFIXES == ("analysis.", "operation.")
+    assert "metric." in artifacts.COLLECTION_ATTRS
+    assert artifacts.COLLECTION_ATTRS["metric."] == "metrics"
+
+
 def test_load_artifacts_uses_dbterd(monkeypatch):
     calls = {}
     monkeypatch.setattr(artifacts, "artifact_version", lambda path, artifact: 12)

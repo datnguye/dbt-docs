@@ -98,3 +98,10 @@ dbterd:
     - exact:model.jaffle_shop.orders
     - wildcard:model.jaffle_shop.dim_*
     - wildcard:model.jaffle_shop.fct_*
+
+show_about: true
+about_links:
+  - label: "Sponsor ♥"
+    href: "https://github.com/sponsors/datnguye"
+  - label: "Request a feature"
+    href: "https://www.linkedin.com/in/datnguye/"

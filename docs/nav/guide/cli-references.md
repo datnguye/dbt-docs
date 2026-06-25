@@ -19,20 +19,24 @@ dbdocs --help
 
 ## `dbdocs generate`
 
-Build the self-contained site from your dbt artifacts.
+Build the site from your dbt artifacts.
 
 ```bash
 dbdocs generate
 dbdocs generate -o public --dialect snowflake
+dbdocs generate --run-results target/run_results.json
 ```
 
 | Option               | Description                                            |
 |----------------------|--------------------------------------------------------|
 | `-o, --output-dir`   | Where to write the site (overrides config).            |
 | `--dialect`          | SQL dialect for column lineage (overrides `adapter_type`). |
+| `--run-results`      | Path to `run_results.json` for the Health Check (default `<target_dir>/run_results.json`). Absent or unparseable, the Health Check is silently skipped. |
 
-Outputs `index.html` (everything baked in) plus a `dbdocs-data.json` companion
-into the output directory.
+Outputs the SPA shell `index.html`, the external `dbdocs-data.json.gz` payload it
+fetches (plus a plain `dbdocs-data.json` debug dump), and a static
+[`api/v1/`](./rest-api.md) JSON tree into the output directory. The site is
+served, not opened off the filesystem — see [How It Works](./how-it-works.md).
 
 ## `dbdocs serve`
 

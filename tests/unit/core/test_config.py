@@ -175,3 +175,38 @@ def test_load_reads_run_results(tmp_path):
     path.write_text("run_results: target/run_results.json\n", encoding="utf-8")
     cfg = DbDocsConfig.load(path)
     assert cfg.run_results == "target/run_results.json"
+
+
+def test_show_about_defaults_to_true():
+    assert DbDocsConfig().show_about is True
+
+
+def test_load_reads_show_about(tmp_path):
+    path = tmp_path / "dbdocs.yml"
+    path.write_text("show_about: false\n", encoding="utf-8")
+    assert DbDocsConfig.load(path).show_about is False
+
+
+def test_show_about_flows_into_render_context():
+    context = DbDocsConfig(show_about=False).render_context()
+    assert context["show_about"] is False
+
+
+def test_about_links_defaults_to_empty():
+    assert DbDocsConfig().about_links == []
+
+
+def test_load_reads_about_links(tmp_path):
+    path = tmp_path / "dbdocs.yml"
+    path.write_text(
+        "about_links:\n  - label: Sponsor\n    href: https://example.com\n",
+        encoding="utf-8",
+    )
+    cfg = DbDocsConfig.load(path)
+    assert cfg.about_links == [{"label": "Sponsor", "href": "https://example.com"}]
+
+
+def test_about_links_flows_into_render_context():
+    links = [{"label": "Sponsor", "href": "https://example.com"}]
+    context = DbDocsConfig(about_links=links).render_context()
+    assert context["about_links"] == links

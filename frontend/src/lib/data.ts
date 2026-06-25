@@ -1,6 +1,47 @@
 import type { Edge, Node } from "@xyflow/react";
 import { colHandle, tableHandle } from "@/components/nodes/ErdTableNode";
-import type { DbdocsData, ErdNodeRecord, NodeRecord } from "@/lib/types";
+import type { DbdocsData, DagLayer, ErdNodeRecord, NodeRecord, ResourceType } from "@/lib/types";
+
+/**
+ * Canonical set of resource types belonging to each DAG layer. Mirrors the
+ * `_CATALOG_RTYPES` / `_SEMANTIC_TYPES` / `_OTHER_TYPES` partitioning in
+ * service.js so the graph bundle and the shell SPA agree on layer membership
+ * without duplicating logic in JS-only string constants.
+ *
+ * Three disjoint bands: `catalog` (physical, database/schema-bearing), `semantic`
+ * (the dbt Semantic Layer proper — metrics, semantic models, saved queries), and
+ * `other` (typeless resources that aren't Semantic Layer: unit tests, exposures).
+ */
+export const CATALOG_RTYPES: ReadonlySet<ResourceType> = new Set([
+  "model",
+  "source",
+  "seed",
+  "snapshot",
+  "analysis",
+  "operation",
+]);
+
+export const SEMANTIC_RTYPES: ReadonlySet<ResourceType> = new Set([
+  "metric",
+  "semantic_model",
+  "saved_query",
+]);
+
+export const OTHER_RTYPES: ReadonlySet<ResourceType> = new Set(["unit_test", "exposure"]);
+
+const ALL_RTYPES: ReadonlySet<ResourceType> = new Set([
+  ...CATALOG_RTYPES,
+  ...SEMANTIC_RTYPES,
+  ...OTHER_RTYPES,
+]);
+
+/** Returns the canonical set of resource types for the given DAG layer. */
+export function layerTypes(layer: DagLayer): ReadonlySet<ResourceType> {
+  if (layer === "semantic") return SEMANTIC_RTYPES;
+  if (layer === "other") return OTHER_RTYPES;
+  if (layer === "all") return ALL_RTYPES;
+  return CATALOG_RTYPES;
+}
 
 // Node box sizing for dagre. Lineage nodes are fixed; ERD table nodes grow with
 // their column count so dagre reserves enough vertical space.
