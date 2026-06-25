@@ -61,11 +61,21 @@ function graphMount(mode, focus, rtype, schema, erdFocus, erdSchema, layer) {
   return root;
 }
 
+/* Copy text to the clipboard, invoking onResult(ok) once. Guards the absent
+   clipboard API (insecure context / old browser) → onResult(false). Shared by
+   every copy-link affordance so the plumbing lives in one place. */
+function copyToClipboard(text, onResult) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function () { onResult(true); }).catch(function () { onResult(false); });
+  } else {
+    onResult(false);
+  }
+}
+
 function copyLinkButton() {
   var btn = el("button", { class: "fs-btn copy-link-btn", type: "button", title: "Copy link to this page" });
   btn.appendChild(icon("link", 15));
   btn.appendChild(document.createTextNode(" Copy link"));
-  // Flash a transient label (and the .copied accent on success), then reset.
   function flash(label, ok) {
     btn.lastChild.textContent = label;
     btn.classList.toggle("copied", !!ok);
@@ -75,15 +85,28 @@ function copyLinkButton() {
     }, 1800);
   }
   btn.addEventListener("click", function () {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(location.href).then(function () {
-        flash(" Copied!", true);
-      }).catch(function () {
-        flash(" Copy unavailable", false);
-      });
-    } else {
-      flash(" Copy unavailable", false);
-    }
+    copyToClipboard(location.href, function (ok) { flash(ok ? " Copied!" : " Copy unavailable", ok); });
+  });
+  return btn;
+}
+
+/* Copy-link anchor for an individual node-page section. Copies a deep link
+   (#/node/<id>?sec=<sectionId>) that route() resolves via focusSection — opening
+   and scrolling to this section on load. Lives in the summary's actions slot. */
+function sectionLinkButton(nodeId, sectionId) {
+  var btn = el("button", {
+    class: "fs-btn section-link-btn", type: "button",
+    title: "Copy link to this section", "aria-label": "Copy link to this section",
+  });
+  btn.appendChild(icon("link", 14));
+  function flash(ok) {
+    btn.classList.toggle("copied", !!ok);
+    setTimeout(function () { btn.classList.remove("copied"); }, 1800);
+  }
+  btn.addEventListener("click", function () {
+    var url = location.origin + location.pathname +
+      "#/node/" + encodeURIComponent(nodeId) + "?sec=" + encodeURIComponent(sectionId);
+    copyToClipboard(url, flash);
   });
   return btn;
 }
@@ -502,27 +525,29 @@ function healthSummaryCard() {
   section.appendChild(el("p", { class: "muted health-card-sub" }, [
     total === 0 ? "No issues detected." : String(total) + " issue" + (total !== 1 ? "s" : "") + " across " + dims.length + " dimensions.",
   ]));
-  section.appendChild(healthScorecard(true, dims));
+  section.appendChild(healthScorecard(dims));
   return section;
 }
 
-/* The scorecard: one chip per dimension with its score% + issue count. When
-   *compact* the chips link to the dimension's section on the Health page.
-   *dims* may be passed to avoid recomputing the dimension list. */
-function healthScorecard(compact, dims) {
-  var chips = (dims || svc.healthDimensions()).map(function (d) {
-    // Dimension name on top, then the score %, then the issue count.
+/* The scorecard: one card per dimension with its score% + issue count. Each card
+   deep-links to its dimension's section via "#/health?d=<key>" — on the overview
+   that navigates to the Health page; on the Health page it re-routes and scrolls
+   to (and opens) the section. *dims* may be passed to avoid recomputing the list. */
+function healthScorecard(dims) {
+  var cards = (dims || svc.healthDimensions()).map(function (d) {
+    var label = HEALTH_DIM_LABELS[d.key] || healthLabel(d.key);
     var children = [
-      el("span", { class: "score-name" }, [HEALTH_DIM_LABELS[d.key] || healthLabel(d.key)]),
+      el("span", { class: "score-name" }, [label]),
       el("span", { class: "score-num" }, [String(d.score), el("span", { class: "score-pct" }, ["%"])]),
       el("span", { class: "score-issues muted" }, [d.issues === 0 ? "clear" : String(d.issues) + " issue" + (d.issues !== 1 ? "s" : "")]),
     ];
-    var attrs = { class: "score-chip " + healthScoreClass(d.score) };
-    // On the overview card, each chip deep-links to its dimension's section.
-    if (compact) { attrs.href = "#/health?d=" + encodeURIComponent(d.key); return el("a", attrs, children); }
-    return el("div", attrs, children);
+    return el("a", {
+      class: "score-chip " + healthScoreClass(d.score),
+      href: "#/health?d=" + encodeURIComponent(d.key),
+      "aria-label": label + ": " + d.score + "%, " + (d.issues === 0 ? "no issues" : d.issues + " issue" + (d.issues !== 1 ? "s" : "")),
+    }, children);
   });
-  return el("div", { class: "health-scorecard" }, chips);
+  return el("div", { class: "health-scorecard" }, cards);
 }
 
 /* Health Check page — scorecard + one collapsible section per dimension. When
@@ -541,7 +566,7 @@ function renderHealth(focusDim) {
     " dimensions, derived from your dbt artifacts.",
   ]));
 
-  app.appendChild(healthScorecard(false));
+  app.appendChild(healthScorecard());
 
   var note = svc.healthNote();
   if (note) app.appendChild(el("p", { class: "empty health-note" }, [note]));
@@ -896,8 +921,9 @@ function nodeSection(opts) {
   if (opts.count != null) {
     summaryChildren.push(el("span", { class: "node-section-count" }, [String(opts.count)]));
   }
-  if (opts.actions) {
-    var actionList = Array.isArray(opts.actions) ? opts.actions : [opts.actions];
+  var actionList = opts.actions ? (Array.isArray(opts.actions) ? opts.actions.slice() : [opts.actions]) : [];
+  if (nodeId && sectionId) actionList.unshift(sectionLinkButton(nodeId, sectionId));
+  if (actionList.length) {
     var actionsWrap = el("span", { class: "node-section-summary-actions" });
     actionList.forEach(function (a) {
       a.addEventListener("click", function (e) { e.stopPropagation(); });
@@ -1056,14 +1082,14 @@ function renderPhysicalNode(n) {
   var detSec = _physicalDetailsSection(n);
   if (detSec) app.appendChild(detSec);
 
-  _appendDepsSections(n);
-
   app.appendChild(_columnsSection(n));
 
   var testSec = _testsSection(n);
   if (testSec) app.appendChild(testSec);
 
   app.appendChild(_erdSection(n));
+
+  _appendDepsSections(n);
 
   var sqlSec = _sqlSection(n);
   if (sqlSec) app.appendChild(sqlSec);
