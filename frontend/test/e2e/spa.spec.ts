@@ -668,9 +668,26 @@ test.describe("overview ERD — toolbar, focus, full-screen", () => {
     const erdSection = page.locator("#node-sec-erd");
     await expect(erdSection).toBeVisible();
     await expect(erdSection.locator(".node-section-title")).toHaveText("Related ERD");
-    const fsBtn = erdSection.locator(".node-section-summary-actions .fs-btn");
+    const fsBtn = erdSection.locator(
+      '.node-section-summary-actions .fs-btn[title="Toggle full screen"]',
+    );
     await expect(fsBtn).toBeVisible();
     await expect(fsBtn).toContainText("Full screen");
+  });
+
+  test("every node-page section has a copy-link button that flips .copied on click", async ({
+    page,
+    context,
+  }) => {
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.goto("index.html#/node/model.jaffle_shop.orders");
+    const detailsSection = page.locator("#node-sec-details");
+    await expect(detailsSection).toBeVisible();
+    const linkBtn = detailsSection.locator(".node-section-summary-actions .section-link-btn");
+    await expect(linkBtn).toHaveAttribute("aria-label", "Copy link to this section");
+    await linkBtn.click();
+    await expect(linkBtn).toHaveClass(/copied/);
+    await expect(linkBtn).not.toHaveClass(/copied/, { timeout: 3000 });
   });
 
   test("model-page Related ERD renders full columns (not the compact +N more)", async ({ page }) => {
