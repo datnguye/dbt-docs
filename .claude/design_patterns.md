@@ -1286,6 +1286,7 @@ export function metricsForSemanticModel(nodeId) {
 Every section on every node page is a native `<details class="node-section">` block returned by `nodeSection(opts)`. The pattern:
 
 - `nodeSection({ id, title, count, defaultOpen, actions, body, nodeId })` returns a `<details id="node-sec-{id}">` whose `<summary>` shows the section title (at h3 visual weight), an optional muted count badge, and any action buttons right-aligned via `margin-left: auto`. Clicking an action stops propagation so it doesn't toggle the section.
+- **Per-section copy-link anchor** — when both `nodeId` and `id` are present, `nodeSection` always prepends a `sectionLinkButton(nodeId, id)` to the actions slot (so *every* node-page section gets one, with no per-renderer wiring). It copies a `#/node/<id>?sec=<sectionId>` deep link (the same `?sec=` `focusSection` resolves), is icon-only (the `link` icon), and `.section-link-btn` CSS fades it in on summary hover/focus (always visible while `.copied` or print-hidden).
 - **State persistence** — on each `toggle` event, `_setSectionOpen(nodeId, sectionId, open)` writes to `localStorage("dbdocs-node-sections")`: `{ [nodeId]: { [sectionId]: bool }, _order: [nodeId,…] }`, capped at 100 most-recently-touched node ids (LRU by `_order`). On render, `_getSectionOpen(nodeId, sectionId, defaultOpen)` restores the stored state or falls back to the render-time default.
 - **Expand all / Collapse all** — `expandCollapseBtn()` queries all `.node-section` elements on the page; if any is closed it sets all open; if all are open it closes all. Added to the badges row in `nodePageHeader`. It registers a single capturing `app` `toggle` listener tracked at module scope (`expandCollapseRefresh`); each render and every non-node `route()` removes the prior listener before attaching a new one, so navigating between node pages never leaks accumulating `refresh` closures on the persistent `app` element. The button label (`Expand all`/`Collapse all`) is its own accessible name — no aggregate `aria-expanded` (each `<details>` already exposes its own open state to AT).
 - **Deep-link `?sec=<suffix>`** — `route()` calls `focusSection(sec)` which forces `node-sec-{sec}` open and scrolls it into view after layout. `?col=` deep-links also force `node-sec-columns` open via `_forceNodeSectionOpen`.
@@ -1326,16 +1327,18 @@ function _erdSection(n) {
 | Section id | Title | Default | Count |
 |---|---|---|---|
 | `details` | Details | open | — |
-| `depends-on` | Depends on | open if non-empty | N upstream |
-| `referenced-by` | Referenced by | open if non-empty | N downstream |
 | `columns` | Columns | open | `columnCount(n)` |
 | `tests` | Tests | open if non-empty | `testResultsForNode(id).summary.total` |
 | `erd` | Related ERD | **closed** | — |
+| `depends-on` | Depends on | open if non-empty | N upstream |
+| `referenced-by` | Referenced by | open if non-empty | N downstream |
 | `sql` | Transformation logic | **closed** | — |
 | (inside sql) `macros` | Macros used | **closed** | `macroCount(n)` |
 
+The dependency sections (`depends-on` / `referenced-by`, via `_appendDepsSections`) sit **after** the ERD and **just before** Transformation logic — the columns/tests/ERD detail leads, the graph-derived dependency chip lists trail. Other renderer types (no SQL section) keep deps wherever `_appendDepsSections` is called in their renderer.
+
 All other renderer types follow the same open-if-non-empty / always-open-for-primary defaults; none have heavy ERD/SQL sections.
 
-- `dbdocs/site/bundle/assets/js/ui.js` — `nodeSection`, `_getSectionOpen`, `_setSectionOpen`, `_loadSectionState`, `_saveSectionState`, `expandCollapseBtn`, `focusSection`, `_forceNodeSectionOpen`, `_depSection`, `_physicalDetailsSection`, `_columnsSection`, `_testsSection`, `_erdSection`, `_sqlSection`, `renderPhysicalNode`, `renderCodeOnlyNode`, `renderMetricNode`, `renderSemanticModelNode`, `renderSavedQueryNode`, `renderUnitTestNode`, `renderExposureNode`
+- `dbdocs/site/bundle/assets/js/ui.js` — `nodeSection`, `sectionLinkButton`, `_getSectionOpen`, `_setSectionOpen`, `_loadSectionState`, `_saveSectionState`, `expandCollapseBtn`, `focusSection`, `_forceNodeSectionOpen`, `_depSection`, `_appendDepsSections`, `_physicalDetailsSection`, `_columnsSection`, `_testsSection`, `_erdSection`, `_sqlSection`, `renderPhysicalNode`, `renderCodeOnlyNode`, `renderMetricNode`, `renderSemanticModelNode`, `renderSavedQueryNode`, `renderUnitTestNode`, `renderExposureNode`
 - `dbdocs/site/bundle/assets/js/service.js` — `columnCount`, `macroCount`
-- `dbdocs/site/bundle/assets/css/style.css` — `details.node-section`, `.node-section-summary`, `.node-section-title`, `.node-section-count`, `.node-section-summary-actions`, `.node-section-body`, `.expand-collapse-btn`, `.erd-section-host`, `@media print`
+- `dbdocs/site/bundle/assets/css/style.css` — `details.node-section`, `.node-section-summary`, `.node-section-title`, `.node-section-count`, `.node-section-summary-actions`, `.section-link-btn`, `.node-section-body`, `.expand-collapse-btn`, `.erd-section-host`, `@media print`
