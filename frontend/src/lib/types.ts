@@ -1,7 +1,18 @@
 // The shape of the data dbdocs injects as window.dbdocsData. We only declare the
 // slices the graph bundle reads (nodes, lineage, columnLineage, erd).
 
-export type ResourceType = "model" | "source" | "seed" | "snapshot";
+export type ResourceType =
+  | "model"
+  | "source"
+  | "seed"
+  | "snapshot"
+  | "analysis"
+  | "operation"
+  | "metric"
+  | "semantic_model"
+  | "saved_query"
+  | "unit_test"
+  | "exposure";
 
 export interface ColumnRecord {
   name: string;
@@ -51,6 +62,8 @@ export interface DbdocsData {
 }
 
 export type GraphMode = "dag" | "erd" | "erd-node";
+
+export type DagLayer = "catalog" | "semantic" | "other" | "all";
 
 export interface MountOptions {
   mode: GraphMode;

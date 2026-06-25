@@ -54,3 +54,42 @@ def test_duplicate_edges_are_deduped():
     )
     result = LineageGraph(manifest).build()
     assert len(result["edges"]) == 1
+
+
+def test_lookup_collection_resource_without_parent_map():
+    metric = SimpleNamespace(depends_on=SimpleNamespace(nodes=["model.shop.orders"]))
+    manifest = SimpleNamespace(
+        nodes={
+            "model.shop.orders": SimpleNamespace(depends_on=SimpleNamespace(nodes=[])),
+        },
+        sources={},
+        metrics={"metric.shop.revenue": metric},
+    )
+    node_ids = {"metric.shop.revenue", "model.shop.orders"}
+    result = LineageGraph(manifest, node_ids=node_ids).build()
+    edges = {(e["source"], e["target"]) for e in result["edges"]}
+    assert ("model.shop.orders", "metric.shop.revenue") in edges
+
+
+def test_default_node_ids_includes_new_resource_types():
+    manifest = SimpleNamespace(
+        nodes={
+            "model.shop.orders": SimpleNamespace(),
+            "analysis.shop.q": SimpleNamespace(),
+        },
+        sources={"source.shop.raw": SimpleNamespace()},
+        metrics={"metric.shop.rev": SimpleNamespace()},
+        semantic_models={"semantic_model.shop.sm": SimpleNamespace()},
+        saved_queries={"saved_query.shop.sq": SimpleNamespace()},
+        unit_tests={"unit_test.shop.ut": SimpleNamespace()},
+        exposures={"exposure.shop.dash": SimpleNamespace()},
+    )
+    ids = LineageGraph(manifest)._default_node_ids()
+    assert "model.shop.orders" in ids
+    assert "analysis.shop.q" in ids
+    assert "source.shop.raw" in ids
+    assert "metric.shop.rev" in ids
+    assert "semantic_model.shop.sm" in ids
+    assert "saved_query.shop.sq" in ids
+    assert "unit_test.shop.ut" in ids
+    assert "exposure.shop.dash" in ids

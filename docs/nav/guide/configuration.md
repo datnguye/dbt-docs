@@ -23,6 +23,8 @@ These keys control what's displayed in the generated site's header and footer.
 | `repo_url`            | repo URL                         | Link to the source repo.                                  |
 | `project_name`        | `dbt docs`                       | dbt project display name.                                 |
 | `show_buy_me_a_coffee`| `true`                           | Show the "Buy me a coffee" badge in the footer.           |
+| `show_about`          | `true`                           | Show the pinned **About** link in the footer (routes to the `#/about` page). Set `false` to hide it. |
+| `about_links`         | `[]`                             | Extra links rendered as CTA buttons on the About page. Each entry is a `{label, href}` pair. |
 | `readme`              | `README.md`                      | Markdown file rendered on the overview, after the ERD. Set empty to omit; a missing file or a path that escapes the project directory is silently skipped. |
 
 ## Build control
@@ -79,6 +81,16 @@ project_name: dbt docs
 
 # Footer "Buy me a coffee" badge. Set false to suppress.
 show_buy_me_a_coffee: true
+
+# Pinned About link in the footer. Set false to hide it.
+show_about: true
+
+# Extra CTA links on the About page. Each entry is a {label, href} pair.
+# about_links:
+#   - label: "Sponsor ♥"
+#     href: "https://github.com/sponsors/datnguye"
+#   - label: "Request a feature"
+#     href: "https://www.linkedin.com/in/datnguye/"
 
 # Project README rendered on the overview, after the ERD. Empty to omit.
 readme: README.md

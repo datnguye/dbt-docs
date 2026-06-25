@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
   Background,
   Controls,
@@ -12,12 +12,12 @@ import {
   type Node,
   type NodeMouseHandler,
 } from "@xyflow/react";
-import { assignErdEdgeSides, buildDagFlow, buildErdFlow, erdNeighborhood, neighborhood } from "@/lib/data";
+import { assignErdEdgeSides, buildDagFlow, buildErdFlow, erdNeighborhood, layerTypes, neighborhood } from "@/lib/data";
 import { applyPositions, asLayoutEdges, resolveLayout } from "@/lib/layout";
 import { shortName } from "@/lib/names";
 import { ErdTableNode } from "@/components/nodes/ErdTableNode";
 import { LineageNode } from "@/components/nodes/LineageNode";
-import type { DbdocsData, ErdNodeRecord, GraphMode } from "@/lib/types";
+import type { DagLayer, DbdocsData, ErdNodeRecord, GraphMode, ResourceType } from "@/lib/types";
 
 const nodeTypes = { lineage: LineageNode, erdTable: ErdTableNode };
 
@@ -30,6 +30,24 @@ const MAX_UNFOCUSED_DAG_NODES = 400;
 // overview is to see everything; the user zooms in from there).
 const ERD_FIT_FOCUSED = { padding: 0.12, minZoom: 0.5, maxZoom: 1 };
 const ERD_FIT_FULL = { padding: 0.08, maxZoom: 1 };
+
+const CATALOG_ORDER: ResourceType[] = ["model", "source", "seed", "snapshot", "analysis", "operation"];
+const SEMANTIC_ORDER: ResourceType[] = ["metric", "semantic_model", "saved_query"];
+const OTHER_ORDER: ResourceType[] = ["unit_test", "exposure"];
+
+const RTYPE_LABELS: Record<string, string> = {
+  model: "Models",
+  source: "Sources",
+  seed: "Seeds",
+  snapshot: "Snapshots",
+  analysis: "Analyses",
+  operation: "Operations",
+  metric: "Metrics",
+  semantic_model: "Semantic Models",
+  saved_query: "Saved Queries",
+  unit_test: "Unit Tests",
+  exposure: "Exposures",
+};
 
 /**
  * Re-fits the view whenever the document enters/exits full screen. Full screen
@@ -50,6 +68,200 @@ function FitOnFullscreen({ options }: { options?: FitViewOptions }): null {
   return null;
 }
 
+/**
+ * Re-fits the view whenever the node set changes. `<ReactFlow fitView>` only
+ * fires on initial mount, so when the layer/types filter narrows to a small
+ * disconnected component (e.g. just saved queries), the camera stays framed for
+ * the previous larger graph and the kept nodes sit off-screen. The `signature`
+ * prop changes when the rendered node set changes, triggering the refit.
+ */
+function FitOnDataChange({
+  signature,
+  options,
+}: {
+  signature: string;
+  options?: FitViewOptions;
+}): null {
+  const { fitView } = useReactFlow();
+  useEffect(() => {
+    const t = setTimeout(() => fitView(options), 60);
+    return () => clearTimeout(t);
+  }, [fitView, options, signature]);
+  return null;
+}
+
+interface LayerControlProps {
+  layer: DagLayer;
+  onChange: (next: DagLayer) => void;
+}
+
+function LayerControl({ layer, onChange }: LayerControlProps): ReactElement {
+  const options: { value: DagLayer; label: string }[] = [
+    { value: "catalog", label: "Catalog" },
+    { value: "semantic", label: "Semantic" },
+    { value: "other", label: "Other" },
+    { value: "all", label: "All" },
+  ];
+  return (
+    <div className="dbd-layer-seg" role="group" aria-label="Filter by layer">
+      {options.map(({ value, label }) => (
+        <button
+          key={value}
+          type="button"
+          className={layer === value ? "active" : ""}
+          aria-pressed={layer === value}
+          onClick={() => onChange(value)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+interface TypeOption {
+  value: string;
+  label: string;
+  count: number;
+}
+
+interface RtypeDropdownProps {
+  layer: DagLayer;
+  selected: Set<string>;
+  catalogOptions: TypeOption[];
+  semanticOptions: TypeOption[];
+  otherOptions: TypeOption[];
+  onChange: (next: Set<string>) => void;
+}
+
+function RtypeDropdown({ layer, selected, catalogOptions, semanticOptions, otherOptions, onChange }: RtypeDropdownProps): ReactElement {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelId = "rtype-dropdown-panel";
+
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpen(false);
+        triggerRef.current?.focus();
+      }
+    }
+    function onClickOutside(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as HTMLElement)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("mousedown", onClickOutside);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("mousedown", onClickOutside);
+    };
+  }, [open]);
+
+  const activeOptions =
+    layer === "catalog"
+      ? catalogOptions
+      : layer === "semantic"
+        ? semanticOptions
+        : layer === "other"
+          ? otherOptions
+          : [...catalogOptions, ...semanticOptions, ...otherOptions];
+  const allSelected = selected.size === 0 || selected.size === activeOptions.length;
+
+  function toggleAll() {
+    onChange(new Set());
+  }
+
+  function toggleOne(value: string) {
+    const next = new Set(selected);
+    if (next.has(value)) {
+      next.delete(value);
+      if (next.size === 0) {
+        onChange(new Set());
+        return;
+      }
+    } else {
+      next.add(value);
+    }
+    onChange(next);
+  }
+
+  let label: string;
+  if (allSelected) {
+    label = "Types: All";
+  } else if (selected.size === 1) {
+    const v = Array.from(selected)[0];
+    label = "Types: " + (RTYPE_LABELS[v] ?? v);
+  } else {
+    label = "Types: " + selected.size + " selected";
+  }
+
+  function renderGroup(options: TypeOption[], groupLabel: string | null) {
+    return (
+      <div className="dbd-multi-group">
+        {groupLabel && <div className="dbd-multi-group-legend">{groupLabel}</div>}
+        {options.map(({ value, label: optLabel, count }) => (
+          <label key={value} className="dbd-multi-option">
+            <input
+              type="checkbox"
+              checked={selected.size === 0 || selected.has(value)}
+              onChange={() => toggleOne(value)}
+            />
+            <span className="dbd-multi-label">{optLabel}</span>
+            <span className="dbd-multi-count">({count})</span>
+          </label>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="dbd-multi" ref={containerRef}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className="dbd-multi-trigger"
+        aria-expanded={open}
+        aria-controls={panelId}
+        aria-label="Filter by resource type"
+        onClick={() => setOpen((v) => !v)}
+      >
+        {label}
+        <span className="dbd-multi-arrow" aria-hidden="true">▾</span>
+      </button>
+      {open && (
+        <div
+          id={panelId}
+          className="dbd-multi-panel"
+          role="group"
+          aria-label="Resource type filter"
+        >
+          <label className="dbd-multi-option dbd-multi-all">
+            <input
+              type="checkbox"
+              checked={allSelected}
+              onChange={toggleAll}
+            />
+            <span className="dbd-multi-label">All types</span>
+          </label>
+          {layer === "all" ? (
+            <>
+              {renderGroup(catalogOptions, "Catalog")}
+              {renderGroup(semanticOptions, "Semantic")}
+              {renderGroup(otherOptions, "Other")}
+            </>
+          ) : (
+            renderGroup(activeOptions, null)
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Props {
   mode: GraphMode;
   focus?: string | null;
@@ -57,12 +269,13 @@ interface Props {
   onOpenNode?: (id: string) => void;
   initialRtype?: string;
   initialSchema?: string;
+  initialLayer?: DagLayer;
   initialErdFocus?: string;
   initialErdSchema?: string;
 }
 
 function sortedSchemas(schemas: Iterable<string>): string[] {
-  return Array.from(new Set(schemas)).sort();
+  return Array.from(new Set(schemas)).filter(Boolean).sort();
 }
 
 function uniqueSchemas(data: DbdocsData): string[] {
@@ -74,17 +287,34 @@ function erdUniqueSchemas(erdNodes: ErdNodeRecord[]): string[] {
   return sortedSchemas(erdNodes.map((n) => n.schema));
 }
 
+function parseRtypeParam(raw: string): Set<string> {
+  return new Set(raw.split(",").map((s) => s.trim()).filter(Boolean));
+}
+
+function serializeRtype(rtype: Set<string>): string {
+  if (rtype.size === 0) return "";
+  return Array.from(rtype).sort().join(",");
+}
 
 /**
  * Build the canonical DAG hash given the current filter state. Written into the
  * URL via `history.replaceState` (not by assigning `location.hash`) so the link
  * stays shareable without firing a `hashchange` that would remount the graph.
+ * `layer` is omitted when it is the default ("catalog") and no types/schema are
+ * selected, keeping clean URLs for the common case.
  */
-export function buildDagHash(focusId: string | null, rtype: string, schema: string): string {
+export function buildDagHash(
+  focusId: string | null,
+  rtype: Set<string>,
+  schema: string,
+  layer: DagLayer = "catalog",
+): string {
   const params: string[] = [];
   if (focusId) params.push("focus=" + encodeURIComponent(focusId));
-  if (rtype) params.push("rtype=" + encodeURIComponent(rtype));
+  const rtypeStr = serializeRtype(rtype);
+  if (rtypeStr) params.push("rtype=" + encodeURIComponent(rtypeStr));
   if (schema) params.push("schema=" + encodeURIComponent(schema));
+  if (layer !== "catalog") params.push("layer=" + encodeURIComponent(layer));
   return params.length ? "#/dag?" + params.join("&") : "#/dag";
 }
 
@@ -107,6 +337,7 @@ export function GraphApp({
   onOpenNode,
   initialRtype = "",
   initialSchema = "",
+  initialLayer = "catalog",
   initialErdFocus = "",
   initialErdSchema = "",
 }: Props): ReactElement {
@@ -133,8 +364,9 @@ export function GraphApp({
   const initialLabel =
     isDag && focus && data.nodes?.[focus] ? data.nodes[focus].label : (isDag ? (focus ?? "") : "");
   const [search, setSearch] = useState(initialLabel);
-  const [rtype, setRtype] = useState(initialRtype);
+  const [rtype, setRtype] = useState<Set<string>>(() => parseRtypeParam(initialRtype));
   const [schema, setSchema] = useState(initialSchema);
+  const [layer, setLayer] = useState<DagLayer>(initialLayer);
 
   const [erdSearch, setErdSearch] = useState(initialErdFocus);
   const [erdSchema, setErdSchema] = useState(initialErdSchema);
@@ -173,26 +405,54 @@ export function GraphApp({
 
   useEffect(() => {
     if (!isDag) return;
-    history.replaceState(null, "", buildDagHash(focusId, rtype, schema));
-  }, [isDag, focusId, rtype, schema]);
+    history.replaceState(null, "", buildDagHash(focusId, rtype, schema, layer));
+  }, [isDag, focusId, rtype, schema, layer]);
 
   useEffect(() => {
     if (!isErd) return;
     history.replaceState(null, "", buildErdHash(erdFocusId, erdSchema));
   }, [isErd, erdFocusId, erdSchema]);
 
+  const layerMountedRef = useRef(false);
+  useEffect(() => {
+    if (!layerMountedRef.current) {
+      layerMountedRef.current = true;
+      return;
+    }
+    setRtype(new Set());
+  }, [layer]);
+
+  const { catalogOptions, semanticOptions, otherOptions } = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const id of Object.keys(data.nodes ?? {})) {
+      const rt = data.nodes[id].resource_type;
+      counts[rt] = (counts[rt] ?? 0) + 1;
+    }
+    const toOptions = (order: ResourceType[]) =>
+      order
+        .filter((rt) => (counts[rt] ?? 0) > 0)
+        .map((rt) => ({ value: rt, label: RTYPE_LABELS[rt] ?? rt, count: counts[rt] }));
+    return {
+      catalogOptions: toOptions(CATALOG_ORDER),
+      semanticOptions: toOptions(SEMANTIC_ORDER),
+      otherOptions: toOptions(OTHER_ORDER),
+    };
+  }, [data]);
+
   const dagKeep = useMemo(() => {
     if (!isDag) return null;
     if (focusId) return neighborhood(data, focusId);
+    const allowed = layerTypes(layer);
     const ids = Object.keys(data.nodes ?? {}).filter((id) => {
       const rec = data.nodes[id];
-      if (rtype && rec.resource_type !== rtype) return false;
+      if (!allowed.has(rec.resource_type as ResourceType)) return false;
+      if (rtype.size > 0 && !rtype.has(rec.resource_type)) return false;
       if (schema && rec.schema !== schema) return false;
       return true;
     });
     if (ids.length > MAX_UNFOCUSED_DAG_NODES) return new Set<string>();
     return new Set(ids);
-  }, [isDag, focusId, data, rtype, schema]);
+  }, [isDag, focusId, data, layer, rtype, schema]);
 
   const erdKeep = useMemo(() => {
     if (!isErd) return null;
@@ -203,7 +463,7 @@ export function GraphApp({
     return new Set(filtered);
   }, [isErd, erdFocusId, erdNodes, erdSchema, data]);
 
-  const hasFilter = !!(rtype || schema);
+  const hasFilter = !!(rtype.size > 0 || schema || layer !== "catalog");
   const dagEmpty = isDag && !focusId && dagKeep !== null && dagKeep.size === 0;
   const dagFilterEmpty = dagEmpty && hasFilter;
   const dagTooLarge = dagEmpty && !hasFilter;
@@ -261,6 +521,8 @@ export function GraphApp({
     return { nodes: laidNodes as Node[], edges: laidEdges as Edge[] };
   }, [isDag, isErd, isErdNode, focus, erdFocusId, focusId, data, dagKeep, erdKeep, dagEmpty, erdEmpty, selectedEdge]);
 
+  const fitSignature = useMemo(() => nodes.map((n) => n.id).join(","), [nodes]);
+
   const erdNodeEmpty = isErdNode && edges.length === 0;
   const erdAlgo = data.metadata?.erd_algo ?? "test_relationship";
 
@@ -291,13 +553,15 @@ export function GraphApp({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <select aria-label="Filter by resource type" value={rtype} onChange={(e) => setRtype(e.target.value)}>
-            <option value="">All types</option>
-            <option value="model">Models</option>
-            <option value="source">Sources</option>
-            <option value="seed">Seeds</option>
-            <option value="snapshot">Snapshots</option>
-          </select>
+          <LayerControl layer={layer} onChange={setLayer} />
+          <RtypeDropdown
+            layer={layer}
+            selected={rtype}
+            catalogOptions={catalogOptions}
+            semanticOptions={semanticOptions}
+            otherOptions={otherOptions}
+            onChange={setRtype}
+          />
           <select aria-label="Filter by schema" value={schema} onChange={(e) => setSchema(e.target.value)}>
             <option value="">All schemas</option>
             {uniqueSchemas(data).map((s) => (
@@ -343,7 +607,7 @@ export function GraphApp({
           <div className="dbd-graph-empty">
             <p>
               No nodes match the selected filter. Clear or change the
-              type/schema filter above, or focus a node to explore its
+              layer/type/schema filter above, or focus a node to explore its
               neighborhood.
             </p>
           </div>
@@ -423,6 +687,10 @@ export function GraphApp({
                 : {})}
           >
             <FitOnFullscreen options={isErd ? erdFitOptions : undefined} />
+            <FitOnDataChange
+              signature={fitSignature}
+              options={isErd ? erdFitOptions : undefined}
+            />
             <Background />
             {interactive && <Controls showInteractive={false} />}
             {interactive && <MiniMap pannable zoomable />}

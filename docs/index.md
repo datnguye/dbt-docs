@@ -6,7 +6,7 @@
 
 <p align="center"><b>An alternative dbt docs site — catalog + ERD + column-level lineage + versioned deploys, all in one CLI.</b></p>
 
-Turn your dbt artifacts into a self-contained docs site: a browsable catalog, an entity-relationship diagram, an interactive lineage DAG, and **column-level lineage** traced from your compiled SQL — all in one `dbdocs generate`. No server, no database, no build step. Serve it with `dbdocs serve`, or deploy versioned builds anywhere a static host will take them.
+Turn your dbt artifacts into a docs site: a browsable catalog, an entity-relationship diagram, an interactive lineage DAG, and **column-level lineage** traced from your compiled SQL — all in one `dbdocs generate`. No database, no build step. Serve it with `dbdocs serve`, or deploy versioned builds anywhere a static host will take them.
 
 [:rocket: Try the live demo](/latest/demo/latest/){ .md-button .md-button--primary target="_blank" }
 [Quickstart](./nav/guide/quickstart.md){ .md-button }
@@ -50,6 +50,7 @@ dbt's built-in docs stop short of telling you *which upstream column fed this do
 - **Project Health Check** across the six [dbt-project-evaluator](https://dbt-labs.github.io/dbt-project-evaluator/) dimensions.
 - **Versioned deploys** with a built-in version switcher, no plugins.
 - **Full-text search** across names, columns, descriptions, tags, and SQL at the client-side, no backend.
+- **Static REST API** (`api/v1/`) — addressable JSON for every node, lineage, and health, for headless / agent consumption.
 - **Dark / light theme.**
 
 ---

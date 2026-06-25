@@ -81,6 +81,11 @@ class DbDocsConfig:
     #: dotted import path whose ``register_rule`` calls add custom rules). Entry
     #: points under ``dbdocs.health_rules`` are also discovered automatically.
     health: dict = field(default_factory=dict)
+    #: The pinned About link shows by default; set false to hide it.
+    show_about: bool = True
+    #: Links rendered on the About page as external CTA buttons.  Each entry is a
+    #: ``{label, href}`` dict; empty by default — no extra links.
+    about_links: list = field(default_factory=list)
 
     @classmethod
     def load(cls, path: "str | Path | None" = None) -> "DbDocsConfig":

@@ -1,7 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { GraphApp } from "@/components/GraphApp";
-import type { DbdocsData, GraphMode } from "@/lib/types";
+import type { DagLayer, DbdocsData, GraphMode } from "@/lib/types";
 import "@xyflow/react/dist/style.css";
 import "@/graph.css";
 
@@ -11,6 +11,11 @@ import "@/graph.css";
 
 const roots = new WeakMap<HTMLElement, Root>();
 
+function parseLayer(raw: string | undefined): DagLayer {
+  if (raw === "semantic" || raw === "other" || raw === "all") return raw;
+  return "catalog";
+}
+
 function mount(el: HTMLElement): void {
   const data = (window as unknown as { dbdocsData?: DbdocsData }).dbdocsData;
   if (!data) return;
@@ -18,6 +23,7 @@ function mount(el: HTMLElement): void {
   const focus = el.dataset.focus || null;
   const initialRtype = el.dataset.rtype || "";
   const initialSchema = el.dataset.schema || "";
+  const initialLayer = parseLayer(el.dataset.layer);
   const initialErdFocus = el.dataset.erdFocus || "";
   const initialErdSchema = el.dataset.erdSchema || "";
   const onOpenNode = (id: string) => {
@@ -34,6 +40,7 @@ function mount(el: HTMLElement): void {
         onOpenNode={onOpenNode}
         initialRtype={initialRtype}
         initialSchema={initialSchema}
+        initialLayer={initialLayer}
         initialErdFocus={initialErdFocus}
         initialErdSchema={initialErdSchema}
       />

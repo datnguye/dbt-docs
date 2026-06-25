@@ -1,7 +1,7 @@
 site_name: Alternative dbt docs
 site_url: https://dbdocs.datnguye.me/
 site_author: Dat Nguyen
-site_description: An alternative dbt docs site — catalog + ERD + column-level lineage, baked into one self-contained file
+site_description: An alternative dbt docs site — catalog + ERD + column-level lineage, generated from your dbt artifacts
 
 repo_name: datnguye/dbt-docs
 repo_url: https://github.com/datnguye/dbt-docs
@@ -22,6 +22,7 @@ nav:
       - Configuration: nav/guide/configuration.md
       - Full-text Search: nav/guide/search.md
       - Versioned Deploy: nav/guide/versioned-deploy.md
+      - REST API: nav/guide/rest-api.md
       - CLI Reference: nav/guide/cli-references.md
     - Development 🛠️:
       - Contributing Guide ❤️: nav/development/contributing-guide.md

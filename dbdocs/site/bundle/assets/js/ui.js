@@ -10,6 +10,7 @@ import * as svc from "./service.js";
 var app = null;
 var sidebar = null;
 var mountedGraph = null;
+var expandCollapseRefresh = null;
 
 function el(tag, attrs, children) {
   var node = document.createElement(tag);
@@ -28,7 +29,7 @@ function clear(node) { while (node.firstChild) node.removeChild(node.firstChild)
 /* Icon names that have a dedicated glyph in assets/css/icons.css. Used to decide
    whether a resource-type has its own icon or falls back to the generic one. */
 var KNOWN_ICONS = {
-  catalog: 1, dag: 1, database: 1, schema: 1, graph: 1, model: 1, source: 1,
+  api: 1, catalog: 1, dag: 1, database: 1, info: 1, schema: 1, graph: 1, model: 1, source: 1,
   seed: 1, snapshot: 1, test: 1, unit_test: 1, metric: 1, semantic_model: 1,
   exposure: 1, saved_query: 1, operation: 1, fullscreen: 1, link: 1, health: 1,
 };
@@ -45,11 +46,12 @@ function unmountGraph() {
   mountedGraph = null;
 }
 
-function graphMount(mode, focus, rtype, schema, erdFocus, erdSchema) {
+function graphMount(mode, focus, rtype, schema, erdFocus, erdSchema, layer) {
   var root = el("div", { class: "graph-host", id: "graph-root", "data-mode": mode });
   if (focus) root.setAttribute("data-focus", focus);
   if (rtype) root.setAttribute("data-rtype", rtype);
   if (schema) root.setAttribute("data-schema", schema);
+  if (layer) root.setAttribute("data-layer", layer);
   if (erdFocus) root.setAttribute("data-erd-focus", erdFocus);
   if (erdSchema) root.setAttribute("data-erd-schema", erdSchema);
   setTimeout(function () {
@@ -88,16 +90,46 @@ function copyLinkButton() {
 
 export function route() {
   unmountGraph();
+  if (expandCollapseRefresh) {
+    app.removeEventListener("toggle", expandCollapseRefresh, true);
+    expandCollapseRefresh = null;
+  }
   var r = svc.parseHash(location.hash);
-  if (r.view === "node" && r.id && svc.node(r.id)) renderNode(svc.node(r.id));
-  else if (r.view === "dag") renderDag(r.query.focus, r.query.rtype, r.query.schema);
+  var routeNode = r.view === "node" && r.id ? svc.node(r.id) : null;
+  if (routeNode) renderNode(routeNode);
+  else if (r.view === "dag") renderDag(r.query.focus, r.query.rtype, r.query.schema, r.query.layer);
   else if (r.view === "health") renderHealth(r.query.d);
+  else if (r.view === "about") renderAbout();
   else renderOverview(r.query.erd_focus, r.query.erd_schema);
   if (r.view !== "dag") app.appendChild(contentFooter());
   highlightNav(r);
   app.focus();
   app.scrollTop = 0;
-  if (r.view === "node" && r.query.col) focusColumn(r.query.col);
+  if (r.view === "node" && r.query.col) {
+    _forceNodeSectionOpen("node-sec-columns");
+    focusColumn(r.query.col);
+  }
+  if (r.view === "node" && r.query.sec) focusSection(r.query.sec);
+}
+
+/* Force a node section open by its element id (e.g. "node-sec-columns"). Used by
+   deep-link handling before focusColumn so the section is visible. */
+function _forceNodeSectionOpen(sectionId) {
+  var el_ = document.getElementById(sectionId);
+  if (el_ && !el_.open) el_.open = true;
+}
+
+/* Scroll the deep-linked section into view and focus its <summary>. The `sec`
+   query param carries the section suffix (e.g. "tests" → id "node-sec-tests"). */
+function focusSection(sec) {
+  var target = document.getElementById("node-sec-" + sec);
+  if (!target) return;
+  target.open = true;
+  setTimeout(function () {
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    var head = target.querySelector("summary");
+    if (head) head.focus({ preventScroll: true });
+  }, 0);
 }
 
 /* Scroll to + briefly highlight a column row (deep-linked from an upstream
@@ -130,22 +162,25 @@ function contentFooter() {
   return foot;
 }
 
-export function buildNav() {
-  clear(sidebar);
-  sidebar.appendChild(el("a", { class: "nav-cta", href: "#/overview", "data-nav": "overview" }, [icon("catalog"), "Catalog overview"]));
-  sidebar.appendChild(el("a", { class: "nav-cta", href: "#/dag", "data-nav": "dag" }, [icon("dag"), "Lineage / DAG"]));
-  if (svc.healthEnabled()) {
-    sidebar.appendChild(el("a", { class: "nav-cta", href: "#/health", "data-nav": "health" }, [icon("health"), "Health Check"]));
-  }
+/* Active nav tab key, persisted to localStorage. Valid values: "catalog" |
+   "semantic" | "other". */
+var _NAV_TAB_KEYS = { catalog: 1, semantic: 1, other: 1 };
+var _activeNavTab = "catalog";
 
-  // Tree filter — matches a table name or database.schema.table.
-  var filter = el("input", {
-    class: "nav-filter", type: "search", id: "nav-filter",
-    placeholder: "Filter tables…", autocomplete: "off",
-  });
-  filter.addEventListener("input", function () { filterTree(filter.value); });
-  sidebar.appendChild(filter);
+function _loadNavTab() {
+  var stored;
+  try { stored = localStorage.getItem("dbdocs-nav-tab") || "catalog"; } catch (e) { stored = "catalog"; }
+  _activeNavTab = _NAV_TAB_KEYS[stored] ? stored : "catalog";
+}
 
+function _saveNavTab(key) {
+  _activeNavTab = key;
+  try { localStorage.setItem("dbdocs-nav-tab", key); } catch (e) {}
+}
+
+/* Build the Catalog db→schema tree (panel for the Catalog tab). */
+function _buildCatalogPanel() {
+  var wrap = el("div", { "data-tab-panel": "catalog" });
   var TREE = svc.tree();
   var NODES = svc.nodes();
   Object.keys(TREE).forEach(function (db) {
@@ -165,16 +200,129 @@ export function buildNav() {
       ]);
       dbDetails.appendChild(schemaDetails);
     });
-    sidebar.appendChild(dbDetails);
+    wrap.appendChild(dbDetails);
   });
+  return wrap;
 }
 
-/* Filter the sidebar tree to items whose database.schema.table (or table name)
-   contains *query*. Empty query restores everything. Schema/db sections with no
-   visible item are hidden + force-opened while filtering so matches are seen. */
-function filterTree(query) {
+/* Build a typeless tab panel ("semantic"/"other"): one collapsible <details> per
+   non-empty resource type in the band. */
+function _buildTypelessPanel(tabKey) {
+  var wrap = el("div", { "data-tab-panel": tabKey });
+  var NODES = svc.nodes();
+  svc.navSections(tabKey).forEach(function (sec) {
+    var items = el("ul", { class: "nav-items" }, sec.ids.map(function (id) {
+      var n = NODES[id];
+      return el("li", { "data-filter": svc.treeFilterText(id) }, [
+        el("a", { href: "#/node/" + encodeURIComponent(id), "data-node": id }, [
+          el("span", { class: "dot " + n.resource_type }), n.label,
+        ]),
+      ]);
+    }));
+    var details = el("details", {
+      class: "nav-section nav-sl-section", open: "",
+      "data-sl-rtype": sec.rtype,
+    }, [
+      el("summary", {}, [icon(sec.rtype), el("span", {}, [sec.label + " (" + sec.count + ")"])]),
+      items,
+    ]);
+    wrap.appendChild(details);
+  });
+  return wrap;
+}
+
+/* Render the sidebar body for the active tab (replaces the panel area). */
+function renderSidebarBody(tabKey) {
+  var oldPanel = sidebar.querySelector(".nav-tab-panel");
+  var panel = el("div", {
+    class: "nav-tab-panel", id: "nav-tabpanel",
+    role: "tabpanel", "aria-labelledby": "nav-tab-" + tabKey,
+  });
+  if (tabKey === "catalog") {
+    panel.appendChild(_buildCatalogPanel());
+  } else {
+    panel.appendChild(_buildTypelessPanel(tabKey));
+  }
+  if (oldPanel) {
+    sidebar.replaceChild(panel, oldPanel);
+  } else {
+    sidebar.appendChild(panel);
+  }
+}
+
+export function buildNav() {
+  clear(sidebar);
+  sidebar.appendChild(el("a", { class: "nav-cta", href: "#/overview", "data-nav": "overview" }, [icon("catalog"), "Catalog overview"]));
+  sidebar.appendChild(el("a", { class: "nav-cta", href: "#/dag", "data-nav": "dag" }, [icon("dag"), "Lineage / DAG"]));
+  if (svc.healthEnabled()) {
+    sidebar.appendChild(el("a", { class: "nav-cta", href: "#/health", "data-nav": "health" }, [icon("health"), "Health Check"]));
+  }
+
+  var tabs = svc.resourceTabs();
+  _loadNavTab();
+  var validKeys = tabs.map(function (t) { return t.key; });
+  if (validKeys.indexOf(_activeNavTab) < 0) _activeNavTab = "catalog";
+
+  var tabStrip = el("div", { class: "nav-tabs", role: "tablist", "aria-label": "Resource types" });
+  tabs.forEach(function (t) {
+    var isActive = t.key === _activeNavTab;
+    var btn = el("button", {
+      class: "nav-tab" + (isActive ? " active" : ""),
+      role: "tab",
+      type: "button",
+      "aria-selected": isActive ? "true" : "false",
+      id: "nav-tab-" + t.key,
+      "aria-controls": "nav-tabpanel",
+    }, [t.label + " (" + t.count + ")"]);
+    btn.addEventListener("click", function () { activateNavTab(t.key); });
+    tabStrip.appendChild(btn);
+  });
+  tabStrip.addEventListener("keydown", function (e) {
+    var btns = Array.prototype.slice.call(tabStrip.querySelectorAll('[role="tab"]'));
+    var cur = btns.indexOf(document.activeElement);
+    if (cur < 0) return;
+    var next = cur;
+    if (e.key === "ArrowRight") next = (cur + 1) % btns.length;
+    else if (e.key === "ArrowLeft") next = (cur - 1 + btns.length) % btns.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = btns.length - 1;
+    else return;
+    e.preventDefault();
+    btns[next].focus();
+  });
+  sidebar.appendChild(tabStrip);
+
+  var filter = el("input", {
+    class: "nav-filter", type: "search", id: "nav-filter",
+    placeholder: "Filter…", autocomplete: "off",
+  });
+  filter.addEventListener("input", function () { filterNav(filter.value); });
+  sidebar.appendChild(filter);
+
+  renderSidebarBody(_activeNavTab);
+}
+
+function activateNavTab(key) {
+  if (key === _activeNavTab && sidebar.querySelector(".nav-tab-panel")) return;
+  _saveNavTab(key);
+  sidebar.querySelectorAll('[role="tab"]').forEach(function (btn) {
+    var isThis = btn.id === "nav-tab-" + key;
+    btn.classList.toggle("active", isThis);
+    btn.setAttribute("aria-selected", isThis ? "true" : "false");
+  });
+  renderSidebarBody(key);
+  var filterEl = document.getElementById("nav-filter");
+  if (filterEl) filterNav(filterEl.value);
+}
+
+/* Filter the visible sidebar panel. Catalog: hides db/schema sections with no
+   matching items. Typeless panels (Semantic/Other): hide non-matching items inside
+   each sub-section and collapse empty sub-sections. */
+function filterNav(query) {
   var q = String(query || "").trim().toLowerCase();
-  sidebar.querySelectorAll(".nav-db").forEach(function (db) {
+  var panel = sidebar.querySelector(".nav-tab-panel");
+  if (!panel) return;
+  panel.querySelectorAll(".nav-db").forEach(function (db) {
     var dbHas = false;
     db.querySelectorAll(".nav-schema").forEach(function (sc) {
       var scHas = false;
@@ -190,17 +338,81 @@ function filterTree(query) {
     db.hidden = !dbHas;
     if (q && dbHas) db.open = true;
   });
+  panel.querySelectorAll(".nav-sl-section").forEach(function (sec) {
+    var secHas = false;
+    sec.querySelectorAll("li[data-filter]").forEach(function (li) {
+      var match = !q || li.getAttribute("data-filter").indexOf(q) !== -1;
+      li.hidden = !match;
+      if (match) secHas = true;
+    });
+    sec.hidden = !secHas;
+    if (q && secHas) sec.open = true;
+  });
 }
 
 function highlightNav(r) {
   sidebar.querySelectorAll("[data-node], [data-nav]").forEach(function (a) { a.classList.remove("active"); });
   if (r.view === "node" && r.id) {
+    var n = svc.node(r.id);
+    if (n && !svc.isCatalogNode(r.id)) {
+      activateNavTab(svc.tabForRtype(n.resource_type));
+      var sec = sidebar.querySelector('.nav-sl-section[data-sl-rtype="' + n.resource_type + '"]');
+      if (sec) sec.open = true;
+    }
     var a = sidebar.querySelector('[data-node="' + (window.CSS && CSS.escape ? CSS.escape(r.id) : r.id) + '"]');
     if (a) a.classList.add("active");
   } else {
     var navKey = r.view === "dag" ? "dag" : r.view === "health" ? "health" : "overview";
     var nav = sidebar.querySelector('[data-nav="' + navKey + '"]');
     if (nav) nav.classList.add("active");
+  }
+}
+
+function renderAbout() {
+  clear(app);
+  app.appendChild(el("h1", {}, ["About"]));
+
+  var apiSection = el("section", { class: "about-section" }, [
+    el("h2", {}, ["JSON API"]),
+    el("p", {}, [
+      "dbdocs generate emits a static, addressable JSON API tree under ",
+      el("code", {}, ["api/v1/"]),
+      ". Every file is self-contained for headless and AI-agent consumption — no HTML parsing needed. Served over HTTP alongside the SPA.",
+    ]),
+    el("ul", { class: "about-api-list" }, [
+      el("li", {}, [el("code", {}, ["index.json"]), " — entry-point index: metadata + all node stubs with relative links"]),
+      el("li", {}, [el("code", {}, ["nodes/<id>.json"]), " — one file per node, enriched with depends_on, referenced_by, and column lineage"]),
+      el("li", {}, [el("code", {}, ["lineage.json"]), " — the full node-level lineage graph (edges, parents, children)"]),
+      el("li", {}, [el("code", {}, ["health.json"]), " — the Health Check section (dimensions, findings, test results)"]),
+      el("li", {}, [el("code", {}, ["column-lineage.json"]), " — whole-graph column lineage (upstream edges + downstream children)"]),
+      el("li", {}, [el("code", {}, ["schema/"]), " — JSON Schemas for each endpoint"]),
+    ]),
+    el("p", {}, [
+      el("a", {
+        class: "about-api-link", href: "api/v1/", target: "_blank", rel: "noopener",
+        "aria-label": "Open the JSON API (opens in new tab)",
+      }, [icon("api"), " Open the JSON API"]),
+    ]),
+  ]);
+  app.appendChild(apiSection);
+
+  var links = svc.aboutLinks();
+  if (links.length) {
+    var linksSection = el("section", { class: "about-section" }, [
+      el("h2", {}, ["Links"]),
+    ]);
+    var linkList = el("ul", { class: "about-links-list" });
+    links.forEach(function (link) {
+      if (!link || !link.label || !link.href) return;
+      linkList.appendChild(el("li", {}, [
+        el("a", {
+          href: link.href, target: "_blank", rel: "noopener",
+          "aria-label": link.label + " (opens in new tab)",
+        }, [link.label]),
+      ]));
+    });
+    linksSection.appendChild(linkList);
+    app.appendChild(linksSection);
   }
 }
 
@@ -410,27 +622,9 @@ function healthNodeCell(nodeId) {
   return el("code", { title: nodeId }, [short]);
 }
 
-/* The dbt test results for one model, rendered on its node page: a status-pill
-   summary plus a "Data tests" table and a "Unit tests" table (each shown only
-   when present). Returns null when the model has no tests / run_results absent. */
-function nodeTestResults(n) {
-  var tr = svc.testResultsForNode(n.id);
-  if (!tr) return null;
-  var section = el("section", { class: "node-tests" });
-  section.appendChild(el("h2", {}, ["Tests"]));
-  section.appendChild(healthPills(tr.summary));
-  if (tr.data.length) {
-    section.appendChild(el("h3", {}, ["Data tests"]));
-    section.appendChild(dataTestTable(tr.data));
-  }
-  if (tr.unit.length) {
-    section.appendChild(el("h3", {}, ["Unit tests"]));
-    section.appendChild(unitTestTable(tr.unit));
-  }
-  return section;
-}
 
-/* A data-test table: test type, tested column, status, failures, message. */
+/* A data-test table: test type, tested column, status, failures, details
+   (description + test_metadata.kwargs chips), and the run_results message. */
 function dataTestTable(tests) {
   var rows = tests.map(function (f) {
     return el("tr", {}, [
@@ -438,13 +632,37 @@ function dataTestTable(tests) {
       el("td", {}, [f.column ? el("code", {}, [f.column]) : el("span", { class: "muted" }, ["—"])]),
       el("td", {}, [statusBadge(f.status)]),
       el("td", { class: "muted" }, [String(f.failures || 0)]),
+      el("td", {}, [testDetailsCell(f)]),
       el("td", {}, [f.message ? el("span", {}, [f.message]) : el("span", { class: "muted" }, ["—"])]),
     ]);
   });
   return el("table", {}, [
-    el("thead", {}, [el("tr", {}, [th("Test"), th("Column"), th("Status"), th("Failures"), th("Message")])]),
+    el("thead", {}, [el("tr", {}, [th("Test"), th("Column"), th("Status"), th("Failures"), th("Details"), th("Message")])]),
     el("tbody", {}, rows),
   ]);
+}
+
+/* The "Details" cell for a data test: the manifest description (when present)
+   plus a chip per kwarg from test_metadata (e.g. accepted_values: ["a","b"],
+   expression: "x > 0"). Returns the muted em-dash when both are empty. */
+function testDetailsCell(f) {
+  var hasDesc = f.description && String(f.description).trim();
+  var kwargs = f.kwargs || {};
+  var kwargKeys = Object.keys(kwargs);
+  if (!hasDesc && !kwargKeys.length) return el("span", { class: "muted" }, ["—"]);
+  var children = [];
+  if (hasDesc) children.push(el("div", { class: "test-desc" }, [String(f.description)]));
+  if (kwargKeys.length) {
+    children.push(el("div", { class: "test-kwargs" }, kwargKeys.map(function (k) {
+      var raw = kwargs[k];
+      var val = Array.isArray(raw) ? raw.join(", ") : String(raw);
+      return el("span", { class: "kwarg-chip" }, [
+        el("span", { class: "kwarg-key" }, [k + ": "]),
+        el("code", { class: "kwarg-val" }, [val]),
+      ]);
+    })));
+  }
+  return el("div", { class: "test-details" }, children);
 }
 
 /* A unit-test table: the unit test name, status, message (no column concept). */
@@ -518,11 +736,86 @@ function card(num, lbl, rtype) {
   return el("div", { class: "card" }, [head, el("div", { class: "lbl" }, [lbl])]);
 }
 
-function renderNode(n) {
-  clear(app);
+function nodeDetailsBlock(n) {
+  var rows = [];
+  function addRow(label, value) {
+    rows.push(el("dt", {}, [label]));
+    rows.push(el("dd", {}, [value]));
+  }
+  if (n.materialization) addRow("Materialization", n.materialization);
+  if (n.access) addRow("Access", n.access);
+  if (n.group) addRow("Group", n.group);
+  if (n.resource_type === "model" || n.contract_enforced) {
+    addRow("Contract", n.contract_enforced ? "enforced" : "not enforced");
+  }
+  if (n.version) {
+    var vtext = String(n.version);
+    if (n.latest_version) vtext += "  (latest: " + n.latest_version + ")";
+    addRow("Version", vtext);
+  }
+  if (n.owner) addRow("Owner", n.owner);
+  if (n.original_file_path) {
+    var repoHref = svc.repoUrl(n.original_file_path, "blob");
+    var fileEl = repoHref
+      ? el("a", { href: repoHref, target: "_blank", rel: "noopener" }, [n.original_file_path])
+      : el("span", {}, [n.original_file_path]);
+    addRow("File", fileEl);
+  }
+  var stats = n.stats || {};
+  Object.keys(stats).forEach(function (k) {
+    var s = stats[k];
+    addRow(s.label || k, String(s.value == null ? "" : s.value));
+  });
+  var meta = n.meta || {};
+  var metaKeys = Object.keys(meta);
+  if (metaKeys.length) {
+    var metaItems = metaKeys.map(function (k) {
+      return el("li", { class: "meta-item" }, [k + ": " + JSON.stringify(meta[k])]);
+    });
+    addRow("Meta", el("ul", { class: "meta-list" }, metaItems));
+  }
+  if (!rows.length) return null;
+  return el("div", { class: "node-details" }, [el("dl", {}, rows)]);
+}
+
+function detailsList(rows) {
+  if (!rows.length) return null;
+  var dl = el("dl", {});
+  rows.forEach(function (pair) { dl.appendChild(pair[0]); dl.appendChild(pair[1]); });
+  return el("div", { class: "node-details" }, [dl]);
+}
+
+function depChipList(items) {
+  if (!items || !items.length) return null;
+  var chips = items.map(function (d) {
+    return el("a", { class: "dep-chip", href: "#/node/" + encodeURIComponent(d.id), title: d.id }, [
+      el("span", { class: "dot " + d.rtype }), d.label,
+    ]);
+  });
+  return el("div", { class: "dep-chips" }, chips);
+}
+
+function _depSection(label, items, nodeId, sectionId) {
+  if (!items.length) return null;
+  return nodeSection({
+    nodeId: nodeId, id: sectionId, title: label,
+    count: items.length, defaultOpen: true,
+    body: depChipList(items),
+  });
+}
+
+/* Append the "Depends on" / "Referenced by" sections for a node, derived from
+   the lineage graph; each is appended only when it has items. */
+function _appendDepsSections(n) {
+  var upSec = _depSection("Depends on", svc.dependsOn(n.id), n.id, "depends-on");
+  if (upSec) app.appendChild(upSec);
+  var dnSec = _depSection("Referenced by", svc.referencedBy(n.id), n.id, "referenced-by");
+  if (dnSec) app.appendChild(dnSec);
+}
+
+function nodePageHeader(n) {
   app.appendChild(el("h1", {}, [n.label, " ", el("span", { class: "page-id" }, ["`" + n.resource_type + "`"])]));
   app.appendChild(el("div", { class: "page-id" }, [n.id]));
-
   var badges = el("div", { class: "badges" }, [el("span", { class: "badge rtype " + n.resource_type }, [n.resource_type])]);
   if (n.relation_name) badges.appendChild(el("span", { class: "badge" }, ["⌗ " + n.relation_name]));
   (n.tags || []).forEach(function (t) { badges.appendChild(el("span", { class: "badge tag" }, ["#" + t])); });
@@ -530,65 +823,477 @@ function renderNode(n) {
   viewDag.appendChild(icon("graph")); viewDag.appendChild(document.createTextNode(" View in DAG"));
   badges.appendChild(viewDag);
   badges.appendChild(copyLinkButton());
+  badges.appendChild(expandCollapseBtn());
   app.appendChild(badges);
-
   app.appendChild(n.description
     ? el("p", { class: "description", html: svc.mdInline(n.description) }, [])
     : el("p", { class: "description muted" }, ["No description provided."]));
+}
 
-  /* Columns — with inline upstream-lineage and downstream-impact columns. */
+/* ── Section-state persistence ───────────────────────────────────────────────
+   localStorage key: "dbdocs-node-sections"
+   Shape: { nodeId: { sectionId: bool(open) }, _order: [nodeId, …] }
+   Capped at SECTION_STATE_CAP most-recently-touched node ids (LRU by insertion
+   order via _order array). */
+var SECTION_STATE_CAP = 100;
+var _SECTION_LS_KEY = "dbdocs-node-sections";
+
+function _loadSectionState() {
+  try {
+    var raw = localStorage.getItem(_SECTION_LS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (e) { return {}; }
+}
+
+function _saveSectionState(state) {
+  try { localStorage.setItem(_SECTION_LS_KEY, JSON.stringify(state)); } catch (e) {}
+}
+
+function _getSectionOpen(nodeId, sectionId, defaultOpen) {
+  var state = _loadSectionState();
+  var nodeState = state[nodeId];
+  if (!nodeState || nodeState[sectionId] == null) return defaultOpen;
+  return !!nodeState[sectionId];
+}
+
+function _setSectionOpen(nodeId, sectionId, open) {
+  var state = _loadSectionState();
+  if (!state._order) state._order = [];
+  if (!state[nodeId]) {
+    state._order.push(nodeId);
+    state[nodeId] = {};
+  } else {
+    var idx = state._order.indexOf(nodeId);
+    if (idx > -1) state._order.splice(idx, 1);
+    state._order.push(nodeId);
+  }
+  state[nodeId][sectionId] = open;
+  while (state._order.length > SECTION_STATE_CAP) {
+    var oldest = state._order.shift();
+    delete state[oldest];
+  }
+  _saveSectionState(state);
+}
+
+/* ── nodeSection: the shared <details> block for every section on a node page ──
+   opts: { id, title, count, defaultOpen, actions, body }
+   - id: stable suffix used for <details id="node-sec-{id}"> and deep-linking
+   - title: section heading text (h3-weight visually, inside <summary>)
+   - count: optional number badge shown after the title (e.g. "7 columns")
+   - defaultOpen: whether the section starts open when no stored state exists
+   - actions: optional Element or array of Elements placed at the right of the
+     summary (e.g. Full-screen button). Clicks on actions stop propagation so
+     they don't toggle the details.
+   - body: Element or array of Elements placed in the section body div
+   - nodeId: the node's unique_id used for per-section state persistence */
+function nodeSection(opts) {
+  var nodeId = opts.nodeId || "";
+  var sectionId = opts.id || "";
+  var isOpen = _getSectionOpen(nodeId, sectionId, !!opts.defaultOpen);
+
+  var summaryTitle = el("span", { class: "node-section-title" }, [opts.title]);
+  var summaryChildren = [summaryTitle];
+  if (opts.count != null) {
+    summaryChildren.push(el("span", { class: "node-section-count" }, [String(opts.count)]));
+  }
+  if (opts.actions) {
+    var actionList = Array.isArray(opts.actions) ? opts.actions : [opts.actions];
+    var actionsWrap = el("span", { class: "node-section-summary-actions" });
+    actionList.forEach(function (a) {
+      a.addEventListener("click", function (e) { e.stopPropagation(); });
+      actionsWrap.appendChild(a);
+    });
+    summaryChildren.push(actionsWrap);
+  }
+
+  var summary = el("summary", { class: "node-section-summary" }, summaryChildren);
+  var bodyChildren = Array.isArray(opts.body) ? opts.body : [opts.body];
+  var bodyEl = el("div", { class: "node-section-body" }, bodyChildren.filter(Boolean));
+
+  var attrs = { class: "node-section", id: "node-sec-" + sectionId };
+  if (isOpen) attrs.open = "";
+  var details = el("details", attrs, [summary, bodyEl]);
+
+  details.addEventListener("toggle", function () {
+    _setSectionOpen(nodeId, sectionId, details.open);
+  });
+  return details;
+}
+
+/* "Expand all / Collapse all" button for the node page header. When any section
+   is closed it reads "Expand all"; when all are open it reads "Collapse all".
+   Toggling opens or closes every .node-section on the page; the label is the
+   button's own accessible name (each <details> exposes its own open state to AT). */
+function expandCollapseBtn() {
+  var btn = el("button", { class: "fs-btn expand-collapse-btn", type: "button" });
+  function refresh() {
+    var sections = Array.prototype.slice.call(app.querySelectorAll(".node-section"));
+    var allOpen = sections.length > 0 && sections.every(function (s) { return s.open; });
+    btn.textContent = allOpen ? "Collapse all" : "Expand all";
+  }
+  btn.addEventListener("click", function () {
+    var sections = Array.prototype.slice.call(app.querySelectorAll(".node-section"));
+    var allOpen = sections.every(function (s) { return s.open; });
+    sections.forEach(function (s) { s.open = !allOpen; });
+    refresh();
+  });
+  if (expandCollapseRefresh) app.removeEventListener("toggle", expandCollapseRefresh, true);
+  expandCollapseRefresh = refresh;
+  app.addEventListener("toggle", refresh, true);
+  setTimeout(refresh, 0);
+  return btn;
+}
+
+function renderNode(n) {
+  clear(app);
+  if (n.resource_type === "metric") { renderMetricNode(n); return; }
+  if (n.resource_type === "semantic_model") { renderSemanticModelNode(n); return; }
+  if (n.resource_type === "saved_query") { renderSavedQueryNode(n); return; }
+  if (n.resource_type === "unit_test") { renderUnitTestNode(n); return; }
+  if (n.resource_type === "exposure") { renderExposureNode(n); return; }
+  if (n.resource_type === "analysis" || n.resource_type === "operation") { renderCodeOnlyNode(n); return; }
+  renderPhysicalNode(n);
+}
+
+function _physicalDetailsSection(n) {
+  var det = nodeDetailsBlock(n);
+  if (!det) return null;
+  return nodeSection({ nodeId: n.id, id: "details", title: "Details", defaultOpen: true, body: det });
+}
+
+function _columnsSection(n) {
   var colLin = svc.columnLineageMap(n.id);
   var dnLin = svc.downstreamMap(n.id);
-  app.appendChild(el("h2", {}, ["Columns"]));
+  var body;
   if (n.columns && n.columns.length) {
     var rows = n.columns.map(function (c) {
       return el("tr", { "data-col": String(c.name).toLowerCase() }, [
         el("td", {}, [el("code", {}, [c.name])]),
         el("td", { class: "muted" }, [c.type || ""]),
         el("td", {}, (c.tags || []).map(function (t) { return el("span", { class: "badge tag" }, ["#" + t]); })),
+        el("td", {}, (c.tests || []).map(function (t) { return el("span", { class: "badge test" }, [t]); })),
         el("td", { html: String(c.description || "") }, []),
         el("td", {}, upstreamChips(colLin[String(c.name).toLowerCase()])),
         el("td", {}, downstreamChips(dnLin[String(c.name).toLowerCase()])),
       ]);
     });
-    app.appendChild(el("table", {}, [
-      el("thead", {}, [el("tr", {}, [th("Column"), th("Type"), th("Tags"), th("Description"), th("Upstream lineage"), th("Downstream impact")])]),
+    body = el("table", {}, [
+      el("thead", {}, [el("tr", {}, [th("Column"), th("Type"), th("Tags"), th("Tests"), th("Description"), th("Upstream lineage"), th("Downstream impact")])]),
       el("tbody", {}, rows),
-    ]));
+    ]);
   } else {
-    app.appendChild(el("p", { class: "empty" }, ["No columns found in the catalog for this entity."]));
+    body = el("p", { class: "empty" }, ["No columns found in the catalog for this entity."]);
   }
+  return nodeSection({
+    nodeId: n.id, id: "columns", title: "Columns",
+    count: svc.columnCount(n), defaultOpen: true, body: body,
+  });
+}
 
-  /* Tests — this model's dbt test results (from run_results.json), if any. */
-  var tests = nodeTestResults(n);
-  if (tests) app.appendChild(tests);
+function _testsSection(n) {
+  var tr = svc.testResultsForNode(n.id);
+  if (!tr) return null;
+  var bodies = [healthPills(tr.summary)];
+  if (tr.data.length) {
+    bodies.push(el("h3", {}, ["Data tests"]));
+    bodies.push(dataTestTable(tr.data));
+  }
+  if (tr.unit.length) {
+    bodies.push(el("h3", {}, ["Unit tests"]));
+    bodies.push(unitTestTable(tr.unit));
+  }
+  return nodeSection({
+    nodeId: n.id, id: "tests", title: "Tests",
+    count: tr.summary.total, defaultOpen: tr.summary.total > 0, body: bodies,
+  });
+}
 
-  /* Related ERD — before the transformation logic. */
-  var erdNodeHost = graphMount("erd-node", n.id);
-  var erdNodeFs = el("button", {
+function _erdSection(n) {
+  var host = el("div", { class: "erd-section-host" });
+  var mounted = false;
+  var fsBtn = el("button", {
     class: "fs-btn", type: "button", title: "Toggle full screen",
-    onclick: function () { toggleFullscreen(erdNodeHost); },
+    onclick: function () { toggleFullscreen(host); },
   }, [icon("fullscreen", 15), " Full screen"]);
-  app.appendChild(el("div", { class: "page-head" }, [
-    el("h2", {}, ["Related ERD"]),
-    el("div", { class: "page-head-actions" }, [erdNodeFs]),
-  ]));
-  app.appendChild(erdNodeHost);
-
-  /* Transformation logic. */
-  if (n.compiled_code || n.raw_code) {
-    app.appendChild(el("h2", {}, ["Transformation logic"]));
-    app.appendChild(codeTabs(n));
-    if (n.macros && n.macros.length) {
-      app.appendChild(el("h2", {}, ["Macros used"]));
-      n.macros.forEach(function (m) {
-        app.appendChild(el("details", { class: "macro" }, [
-          el("summary", {}, [m.name + (m.package ? "  (" + m.package + ")" : "")]),
-          el("pre", { class: "code" }, [m.sql || ""]),
-        ]));
-      });
+  var sec = nodeSection({
+    nodeId: n.id, id: "erd", title: "Related ERD",
+    defaultOpen: true, actions: fsBtn, body: host,
+  });
+  function ensureMounted() {
+    if (sec.open && !mounted) {
+      mounted = true;
+      var g = graphMount("erd-node", n.id);
+      host.appendChild(g);
     }
   }
+  sec.addEventListener("toggle", ensureMounted);
+  if (sec.open) setTimeout(ensureMounted, 0);
+  return sec;
+}
+
+function _sqlSection(n) {
+  if (!n.compiled_code && !n.raw_code) return null;
+  var macroCount = svc.macroCount(n);
+  var bodies = [codeTabs(n)];
+  if (macroCount > 0) {
+    var macroSec = nodeSection({
+      nodeId: n.id, id: "macros", title: "Macros used",
+      count: macroCount, defaultOpen: false,
+      body: n.macros.map(function (m) {
+        return el("details", { class: "macro" }, [
+          el("summary", {}, [m.name + (m.package ? "  (" + m.package + ")" : "")]),
+          el("pre", { class: "code" }, [m.sql || ""]),
+        ]);
+      }),
+    });
+    bodies.push(macroSec);
+  }
+  return nodeSection({ nodeId: n.id, id: "sql", title: "Transformation logic", defaultOpen: false, body: bodies });
+}
+
+function renderPhysicalNode(n) {
+  nodePageHeader(n);
+  var detSec = _physicalDetailsSection(n);
+  if (detSec) app.appendChild(detSec);
+
+  _appendDepsSections(n);
+
+  app.appendChild(_columnsSection(n));
+
+  var testSec = _testsSection(n);
+  if (testSec) app.appendChild(testSec);
+
+  app.appendChild(_erdSection(n));
+
+  var sqlSec = _sqlSection(n);
+  if (sqlSec) app.appendChild(sqlSec);
+}
+
+function renderCodeOnlyNode(n) {
+  nodePageHeader(n);
+  var detRows = [];
+  if (n.original_file_path) {
+    var repoHref = svc.repoUrl(n.original_file_path, "blob");
+    var fileEl = repoHref
+      ? el("a", { href: repoHref, target: "_blank", rel: "noopener" }, [n.original_file_path])
+      : el("span", {}, [n.original_file_path]);
+    detRows.push([el("dt", {}, ["File"]), el("dd", {}, [fileEl])]);
+  }
+  if (n.package) detRows.push([el("dt", {}, ["Package"]), el("dd", {}, [n.package])]);
+  var detSec = detailsList(detRows);
+  if (detSec) {
+    app.appendChild(nodeSection({ nodeId: n.id, id: "details", title: "Details", defaultOpen: true, body: detSec }));
+  }
+
+  _appendDepsSections(n);
+
+  if (n.compiled_code || n.raw_code) {
+    app.appendChild(nodeSection({ nodeId: n.id, id: "code", title: "Code", defaultOpen: true, body: codeTabs(n) }));
+  }
+}
+
+function metricNameLink(name) {
+  var resolved = svc.metricByName(name);
+  return resolved
+    ? el("a", { class: "dep-chip", href: "#/node/" + encodeURIComponent(resolved.id), title: resolved.id }, [
+        el("span", { class: "dot metric" }), resolved.label,
+      ])
+    : el("code", {}, [name]);
+}
+
+function measureNameLink(measureName) {
+  var resolved = svc.semanticModelForMeasure(measureName);
+  return resolved
+    ? el("a", { class: "dep-chip", href: "#/node/" + encodeURIComponent(resolved.id), title: "measure " + measureName + " on " + resolved.id }, [
+        el("span", { class: "dot semantic_model" }), resolved.label + "." + measureName,
+      ])
+    : el("code", {}, [measureName]);
+}
+
+function renderMetricNode(n) {
+  nodePageHeader(n);
+  var m = svc.metricPayload(n);
+  var rows = [];
+  if (m.type) rows.push([el("dt", {}, ["Type"]), el("dd", {}, [el("code", {}, [m.type])])]);
+  if (m.label) rows.push([el("dt", {}, ["Label"]), el("dd", {}, [m.label])]);
+  if (m.filter) rows.push([el("dt", {}, ["Filter"]), el("dd", {}, [el("code", {}, [m.filter])])]);
+  var tp = m.type_params || {};
+  var LINKED_METRIC_KEYS = { metrics: true };
+  var LINKED_MEASURE_KEYS = { measure: true, numerator: true, denominator: true, input_measures: true };
+  Object.keys(tp).forEach(function (k) {
+    var v = tp[k];
+    var dd;
+    if (LINKED_METRIC_KEYS[k] && Array.isArray(v)) {
+      dd = el("dd", {}, [el("div", { class: "dep-chips" }, v.map(metricNameLink))]);
+    } else if (LINKED_MEASURE_KEYS[k]) {
+      if (Array.isArray(v)) {
+        dd = el("dd", {}, [el("div", { class: "dep-chips" }, v.map(measureNameLink))]);
+      } else {
+        dd = el("dd", {}, [measureNameLink(String(v))]);
+      }
+    } else {
+      dd = el("dd", {}, [el("code", {}, [String(v)])]);
+    }
+    rows.push([el("dt", {}, [k]), dd]);
+  });
+  var det = detailsList(rows);
+  if (det) app.appendChild(nodeSection({ nodeId: n.id, id: "details", title: "Details", defaultOpen: true, body: det }));
+
+  _appendDepsSections(n);
+}
+
+function renderSemanticModelNode(n) {
+  nodePageHeader(n);
+  var sm = svc.semanticModelPayload(n);
+  var detRows = [];
+  if (sm.model) {
+    var nd = svc.node(sm.model);
+    var modelLink = nd
+      ? el("a", { href: "#/node/" + encodeURIComponent(sm.model) }, [nd.label || nd.name])
+      : el("code", {}, [sm.model]);
+    detRows.push([el("dt", {}, ["Underlying model"]), el("dd", {}, [modelLink])]);
+  }
+  var det = detailsList(detRows);
+  if (det) app.appendChild(nodeSection({ nodeId: n.id, id: "details", title: "Details", defaultOpen: true, body: det }));
+
+  if (sm.entities && sm.entities.length) {
+    app.appendChild(nodeSection({ nodeId: n.id, id: "entities", title: "Entities", count: sm.entities.length, defaultOpen: true, body: smTable(sm.entities, ["name", "type"]) }));
+  }
+  if (sm.dimensions && sm.dimensions.length) {
+    app.appendChild(nodeSection({ nodeId: n.id, id: "dimensions", title: "Dimensions", count: sm.dimensions.length, defaultOpen: true, body: smTable(sm.dimensions, ["name", "type"]) }));
+  }
+  if (sm.measures && sm.measures.length) {
+    app.appendChild(nodeSection({ nodeId: n.id, id: "measures", title: "Measures", count: sm.measures.length, defaultOpen: true, body: smTable(sm.measures, ["name", "agg", "expr"]) }));
+  }
+  var builtMetrics = svc.metricsForSemanticModel(n.id);
+  if (builtMetrics.length) {
+    var metricChips = el("div", { class: "dep-chips" }, builtMetrics.map(function (m) {
+      return el("a", { class: "dep-chip", href: "#/node/" + encodeURIComponent(m.id), title: m.id }, [
+        el("span", { class: "dot metric" }), m.label,
+      ]);
+    }));
+    app.appendChild(nodeSection({ nodeId: n.id, id: "metrics-built", title: "Metrics built on this model", count: builtMetrics.length, defaultOpen: true, body: metricChips }));
+  }
+
+  _appendDepsSections(n);
+}
+
+function smTable(items, cols) {
+  var head = el("thead", {}, [el("tr", {}, cols.map(function (c) { return th(c.charAt(0).toUpperCase() + c.slice(1)); }))]);
+  var body = el("tbody", {}, items.map(function (item) {
+    return el("tr", {}, cols.map(function (c) {
+      return el("td", {}, [item[c] ? el("code", {}, [item[c]]) : el("span", { class: "muted" }, ["—"])]);
+    }));
+  }));
+  return el("table", {}, [head, body]);
+}
+
+function renderSavedQueryNode(n) {
+  nodePageHeader(n);
+  var sq = svc.savedQueryPayload(n);
+  var rows = [];
+  if (sq.label) rows.push([el("dt", {}, ["Label"]), el("dd", {}, [sq.label])]);
+  var det = detailsList(rows);
+  if (det) app.appendChild(nodeSection({ nodeId: n.id, id: "details", title: "Details", defaultOpen: true, body: det }));
+
+  if (sq.metrics && sq.metrics.length) {
+    app.appendChild(nodeSection({ nodeId: n.id, id: "metrics", title: "Metrics", count: sq.metrics.length, defaultOpen: true, body: el("div", { class: "dep-chips" }, sq.metrics.map(metricNameLink)) }));
+  }
+  if (sq.group_by && sq.group_by.length) {
+    app.appendChild(nodeSection({ nodeId: n.id, id: "group-by", title: "Group by", count: sq.group_by.length, defaultOpen: true, body: el("div", { class: "dep-chips" }, sq.group_by.map(function (g) { return el("code", {}, [g]); })) }));
+  }
+  if (sq.where && sq.where.length) {
+    app.appendChild(nodeSection({ nodeId: n.id, id: "where", title: "Where filters", count: sq.where.length, defaultOpen: true, body: el("div", { class: "dep-chips" }, sq.where.map(function (w) { return el("code", {}, [w]); })) }));
+  }
+  if (sq.exports && sq.exports.length) {
+    var exportRows = sq.exports.map(function (e) {
+      return el("tr", {}, [
+        el("td", {}, [e.name ? el("code", {}, [e.name]) : el("span", { class: "muted" }, ["—"])]),
+        el("td", {}, [e.export_as ? el("code", {}, [e.export_as]) : el("span", { class: "muted" }, ["—"])]),
+        el("td", {}, [e.schema ? el("span", {}, [e.schema]) : el("span", { class: "muted" }, ["—"])]),
+        el("td", {}, [e.alias ? el("code", {}, [e.alias]) : el("span", { class: "muted" }, ["—"])]),
+      ]);
+    });
+    var exportTable = el("table", {}, [
+      el("thead", {}, [el("tr", {}, [th("Export"), th("As"), th("Schema"), th("Alias")])]),
+      el("tbody", {}, exportRows),
+    ]);
+    app.appendChild(nodeSection({ nodeId: n.id, id: "exports", title: "Exports", count: sq.exports.length, defaultOpen: true, body: exportTable }));
+  }
+
+  _appendDepsSections(n);
+}
+
+/* Render a unit-test fixture as its actual data: a column→value table for
+   dict/csv fixtures, a SQL code block for sql fixtures, or an empty-state note.
+   The table is wrapped so wide fixtures scroll horizontally; when more rows than
+   shown exist (capped server-side), a "showing N of M" note is appended. */
+function fixtureBody(columns, data, sql, total) {
+  if (sql) return el("pre", { class: "code" }, [sql]);
+  if (!data || !data.length) return el("p", { class: "muted" }, ["No rows provided."]);
+  var head = el("thead", {}, [el("tr", {}, columns.map(th))]);
+  var body = el("tbody", {}, data.map(function (row) {
+    return el("tr", {}, columns.map(function (c) {
+      var v = row[c];
+      return el("td", {}, [v != null && v !== "" ? el("code", {}, [v]) : el("span", { class: "muted" }, ["—"])]);
+    }));
+  }));
+  var children = [el("div", { class: "table-scroll" }, [el("table", {}, [head, body])])];
+  if (total != null && total > data.length) {
+    children.push(el("p", { class: "muted fixture-more" }, ["Showing " + data.length + " of " + total + " rows."]));
+  }
+  return el("div", {}, children);
+}
+
+function renderUnitTestNode(n) {
+  nodePageHeader(n);
+  var ut = svc.unitTestPayload(n);
+  var modelNode = ut.model ? svc.node(ut.model) : null;
+  var rows = [];
+  if (ut.model) {
+    var modelEl = modelNode
+      ? el("a", { href: "#/node/" + encodeURIComponent(ut.model) }, [modelNode.label || modelNode.name])
+      : el("code", {}, [ut.model]);
+    rows.push([el("dt", {}, ["Model under test"]), el("dd", {}, [modelEl])]);
+  }
+  var det = detailsList(rows);
+  if (det) app.appendChild(nodeSection({ nodeId: n.id, id: "details", title: "Details", defaultOpen: true, body: det }));
+
+  (ut.given || []).forEach(function (g, i) {
+    var title = "Given: " + (g.ref || "input " + i);
+    if (g.format) title += " (" + g.format + ")";
+    app.appendChild(nodeSection({
+      nodeId: n.id, id: "given-" + i, title: title, count: g.rows_count,
+      defaultOpen: true, body: fixtureBody(g.columns || [], g.rows || [], g.sql || "", g.rows_count),
+    }));
+  });
+
+  var hasExpect = (ut.expect_data && ut.expect_data.length) || ut.expect_sql;
+  if (hasExpect) {
+    var expectTitle = "Expected output";
+    if (ut.expect_format) expectTitle += " (" + ut.expect_format + ")";
+    app.appendChild(nodeSection({
+      nodeId: n.id, id: "expect", title: expectTitle, count: ut.expect_rows,
+      defaultOpen: true, body: fixtureBody(ut.expect_columns || [], ut.expect_data || [], ut.expect_sql || "", ut.expect_rows),
+    }));
+  }
+}
+
+function renderExposureNode(n) {
+  nodePageHeader(n);
+  var ex = svc.exposurePayload(n);
+  var rows = [];
+  if (ex.type) rows.push([el("dt", {}, ["Type"]), el("dd", {}, [el("code", {}, [ex.type])])]);
+  if (ex.label) rows.push([el("dt", {}, ["Label"]), el("dd", {}, [ex.label])]);
+  if (ex.maturity) rows.push([el("dt", {}, ["Maturity"]), el("dd", {}, [el("code", {}, [ex.maturity])])]);
+  if (ex.url) rows.push([el("dt", {}, ["URL"]), el("dd", {}, [el("a", { href: ex.url, target: "_blank", rel: "noopener" }, [ex.url])])]);
+  if (ex.owner_name || ex.owner_email) {
+    rows.push([el("dt", {}, ["Owner"]), el("dd", {}, [ex.owner_name || ex.owner_email])]);
+  }
+  var det = detailsList(rows);
+  if (det) app.appendChild(nodeSection({ nodeId: n.id, id: "details", title: "Details", defaultOpen: true, body: det }));
+
+  _appendDepsSections(n);
 }
 function th(t) { return el("th", {}, [t]); }
 
@@ -646,10 +1351,10 @@ function codeTabs(n) {
   return wrap;
 }
 
-function renderDag(focusId, rtype, schema) {
+function renderDag(focusId, rtype, schema, layer) {
   clear(app);
   var resolvedFocus = focusId && svc.node(focusId) ? focusId : null;
-  var host = graphMount("dag", resolvedFocus, rtype || "", schema || "");
+  var host = graphMount("dag", resolvedFocus, rtype || "", schema || "", null, null, layer || "");
   var fsBtn = el("button", {
     class: "fs-btn", type: "button", title: "Toggle full screen",
     onclick: function () { toggleFullscreen(host); },
@@ -964,6 +1669,9 @@ function initFooter() {
   var footer = document.getElementById("site-footer");
   if (!footer) return;
   clear(footer);
+  if (svc.meta().show_about !== false) {
+    footer.appendChild(el("a", { class: "about-link", href: "#/about" }, [icon("info"), "About"]));
+  }
   footer.appendChild(el("div", { class: "footer-copy" }, [
     "2026 © ",
     el("a", { href: "https://github.com/datnguye", target: "_blank", rel: "noopener" }, ["@Dat Nguyen"]),

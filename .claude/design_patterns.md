@@ -35,6 +35,9 @@ authoritative; grep it.
   - [Pluggable graph layout (dagre / radial registry)](#pluggable-graph-layout-dagre--radial-registry)
     - [Theory](#theory-8)
     - [Example](#example-8)
+  - [Layer-band DAG filter (catalog / semantic / other / all)](#layer-band-dag-filter-catalog--semantic--other--all)
+    - [Theory](#theory-8b)
+    - [Example](#example-8b)
   - [ERD from dbterd's built-in json target](#erd-from-dbterds-built-in-json-target)
     - [Theory](#theory-9)
     - [Example](#example-9)
@@ -53,6 +56,21 @@ authoritative; grep it.
   - [Always-built artifact-derived data-dict section (Health Check)](#always-built-artifact-derived-data-dict-section-health-check)
     - [Theory](#theory-14)
     - [Example](#example-14)
+  - [Node detail fields + client-derived dependency lists](#node-detail-fields--client-derived-dependency-lists)
+    - [Theory](#theory-15)
+    - [Example](#example-15)
+  - [Static REST /api/v1 surface](#static-rest-apiv1-surface)
+    - [Theory](#theory-16)
+    - [Example](#example-16)
+  - [First-class non-physical resource nodes](#first-class-non-physical-resource-nodes)
+    - [Theory](#theory-17)
+    - [Example](#example-17)
+  - [Semantic-layer enum + object cleanup and client-side cross-linking](#semantic-layer-enum--object-cleanup-and-client-side-cross-linking)
+    - [Theory](#theory-18)
+    - [Example](#example-18)
+  - [Collapsible node-page sections (`nodeSection`)](#collapsible-node-page-sections-nodesection)
+    - [Theory](#theory-19)
+    - [Example](#example-19)
 
 ## Pipeline-stage package layout
 
@@ -201,6 +219,9 @@ def _resolve_within_cwd(value: str, field_name: str) -> Path:
 - `dbdocs/core/config.py` — `class DbDocsConfig`, `_NON_METADATA_FIELDS`, `def load`, `def render_context`, `def output_path`, `def _resolve_within_cwd`
 - `dbdocs/site/builder.py` — `def _stage_branding`, `def _copy_branding_asset`
 - `dbdocs/core/exceptions.py` — `DbDocsConfigError`, `LineageError`, `DeployError`
+- `dbdocs/core/config.py` — `show_about` / `about_links` (display-metadata fields, *not* in `_NON_METADATA_FIELDS`, so they flow through `render_context()` → `metadata`); the distinction is the point — build-control fields are stripped, display-metadata like these is kept
+- `dbdocs/site/bundle/assets/js/service.js` — `aboutLinks` (DOM-free accessor, guards `Array.isArray`)
+- `dbdocs/site/bundle/assets/js/ui.js` — `renderAbout` (the `#/about` page: JSON API section + CTA links), `initFooter` (pinned About link gated by `show_about !== false`), route branch `r.view === "about"`
 
 ## Centralized artifact loading + the schema\_ gotcha
 
@@ -251,10 +272,30 @@ manifest's casing. Type falls back to the manifest `data_type` when the catalog
 has no entry. Don't reintroduce a catalog-driven loop that drops manifest columns
 when the catalog is empty.
 
+Each column record also carries its **defined dbt data tests** (e.g.
+`not_null`, `unique`, `accepted_values`) as a sorted `tests: [test_type, ...]`
+list. The list is built once per `build_nodes` call by
+`build_column_tests_index(manifest)` (in `dbdocs/extract/tests_index.py`), which
+scans every `test.*` node that has both an `attached_node` and a `column_name`
+and groups test types by column, lowercase. The same primitive,
+`manifest_test_node_metadata(node)`, is shared with `HealthCheckExtractor` —
+both consumers read `test_metadata.name`, `attached_node`, and `column_name`
+from a manifest test node through this single helper. Table-level tests (no
+`column_name`) are intentionally excluded from the per-column index.
+
+A companion helper, `manifest_test_node_details(node)`, extracts the
+`(description, kwargs)` the SPA shows on the per-model Tests table —
+`description` is the test's YAML docstring and `kwargs` is the user-supplied
+`test_metadata.kwargs` (e.g. `accepted_values: [...]`) minus the `_KWARGS_HIDE`
+noise keys (model/column already shown, plus severity/where/limit/warn_if/
+error_if). It is read by `HealthCheckExtractor._resolve_details` so the test
+detail and the per-column index stay one definition.
+
 ### Example
 
 ```python
-# dbdocs/extract/nodes.py — manifest-base columns, catalog type enriches (case-insensitive)
+# dbdocs/extract/nodes.py — manifest-base columns, catalog type enriches (case-insensitive);
+# column_tests (from build_column_tests_index) annotates each column with its defined tests
 catalog_by_lower = {str(name).lower(): col for name, col in catalog_columns.items()}
 columns = []
 seen_lower = set()
@@ -263,11 +304,13 @@ for name, manifest_column in manifest_columns.items():
     seen_lower.add(lower)
     catalog_column = catalog_by_lower.get(lower)
     col_type = getattr(catalog_column, "type", None) or getattr(manifest_column, "data_type", None)
-    columns.append(_column_entry(name, manifest_column, col_type or ""))
+    columns.append(_column_entry(name, manifest_column, col_type or "", column_tests.get(lower, [])))
 # ... catalog-only columns appended afterwards
 ```
 
 - `dbdocs/extract/nodes.py` — `def _columns`, `def _column_entry`
+- `dbdocs/extract/tests_index.py` — `def build_column_tests_index`, `def manifest_test_node_metadata`, `def manifest_test_node_details`
+- `dbdocs/extract/health/extractor.py` — `_resolve_metadata` (imports `manifest_test_node_metadata` + `manifest_test_node_details`)
 
 ## Fail-soft, parallel column-level lineage
 
@@ -424,6 +467,88 @@ const positions = resolveLayout(isDag ? "dagre" : "radial")(
 
 - `frontend/src/lib/layout.ts` — `LayoutEngine`, `registerLayout`, `resolveLayout`, `mostConnected`, `radialLayout`, `layoutNodes`
 - `frontend/src/components/GraphApp.tsx` — `resolveLayout(isDag ? "dagre" : "radial")`
+
+## Layer-band DAG filter (catalog / semantic / other / all)
+
+### Theory
+
+The DAG view filters in **two stages from a single layer source of truth**, never
+with parallel rtype lists. A `DagLayer` (`"catalog" | "semantic" | "other" |
+"all"`) picks a coarse band of resource types; an optional multi-select narrows
+within it. The layer→types mapping lives **once** in `frontend/src/lib/data.ts`
+as **three disjoint** `ReadonlySet`s:
+
+- `CATALOG_RTYPES` — physical, database/schema-bearing: model/source/seed/
+  snapshot/analysis/operation.
+- `SEMANTIC_RTYPES` — the dbt **Semantic Layer proper**: metric/semantic_model/
+  saved_query (and *only* these three — MetricFlow constructs).
+- `OTHER_RTYPES` — typeless resources that are **not** Semantic Layer:
+  unit_test/exposure.
+
+`layerTypes(layer)` returns the matching band, or `ALL_RTYPES` (the union) for
+`"all"`. The shell SPA's sidebar mirrors the **same** three bands
+(`_SEMANTIC_TYPES`/`_OTHER_TYPES`/`_CATALOG_RTYPES` in `service.js`), so the graph
+bundle and the sidebar agree on which resource type lands in which band without
+duplicating membership. **Don't** lump unit_test/exposure under "semantic" — they
+are the `"other"` band. Don't hardcode a layer's types at a call site; read
+`layerTypes(layer)`.
+
+`dagKeep` composes the filters in order: a **focused node wins** (its full
+`neighborhood(data, focusId)` renders regardless of layer/type so cross-layer
+edges stay visible); unfocused, it filters `data.nodes` by `layerTypes(layer)`
+**first**, then the multi-select `rtype` Set (when non-empty), then `schema` —
+still windowing before layout (over `MAX_UNFOCUSED_DAG_NODES` it returns an empty
+Set and shows the placeholder, per **Windowed graph rendering**). The empty state
+is split by `hasFilter` (`rtype.size > 0 || schema || layer !== "catalog"`):
+`dagFilterEmpty` ("clear the filter") vs `dagTooLarge` (the "focus a node"
+cap placeholder) — don't collapse the two.
+
+The controls are real form elements: `LayerControl` is a segmented `<button>`
+group of four bands (`aria-pressed`, `role="group"`); `RtypeDropdown` is a
+`<button>`-triggered panel of `<label><input type="checkbox">` rows
+(`aria-expanded`/`aria-controls`, Escape + click-outside close with focus restored
+to the trigger). The `"all"` band renders three labelled groups
+(Catalog/Semantic/Other via `CATALOG_ORDER`/`SEMANTIC_ORDER`/`OTHER_ORDER`); a
+single band renders one flat list. `rtype` is a `Set<string>`, and
+`buildDagHash(focus, rtype, schema, layer)` serializes it as a sorted comma list,
+**omitting `layer` when it equals the `"catalog"` default** so common URLs stay
+clean; the hash is written via `history.replaceState` (the no-`hashchange` remount
+trick). Switching layer resets the `rtype` Set (a stale cross-band type can't
+survive the band change), guarded by a mounted-ref so the reset doesn't fire on
+initial mount.
+
+Graph-UI changes need a Node rebuild (`task frontend:build`) of the committed
+bundle.
+
+### Example
+
+```typescript
+// frontend/src/lib/data.ts — one layer→types source of truth, three disjoint bands
+export function layerTypes(layer: DagLayer): ReadonlySet<ResourceType> {
+  if (layer === "semantic") return SEMANTIC_RTYPES;
+  if (layer === "other") return OTHER_RTYPES;
+  if (layer === "all") return ALL_RTYPES;
+  return CATALOG_RTYPES;
+}
+
+// frontend/src/components/GraphApp.tsx — layer band first, then multi-select, then schema
+const allowed = layerTypes(layer);
+const ids = Object.keys(data.nodes ?? {}).filter((id) => {
+  const rec = data.nodes[id];
+  if (!allowed.has(rec.resource_type as ResourceType)) return false;
+  if (rtype.size > 0 && !rtype.has(rec.resource_type)) return false;
+  if (schema && rec.schema !== schema) return false;
+  return true;
+});
+if (ids.length > MAX_UNFOCUSED_DAG_NODES) return new Set<string>();
+```
+
+- `frontend/src/lib/types.ts` — `DagLayer`, the extended `ResourceType` union
+- `frontend/src/lib/data.ts` — `CATALOG_RTYPES`, `SEMANTIC_RTYPES`, `OTHER_RTYPES`, `layerTypes`, `buildDagFlow`
+- `frontend/src/components/GraphApp.tsx` — `LayerControl` (4 bands), `RtypeDropdown`, `CATALOG_ORDER`/`SEMANTIC_ORDER`/`OTHER_ORDER`, `dagKeep`, `hasFilter`, `dagFilterEmpty`/`dagTooLarge`, `buildDagHash`, `MAX_UNFOCUSED_DAG_NODES`
+- `frontend/src/main.tsx` — `parseLayer`, `data-layer` dataset → `initialLayer`
+- `dbdocs/site/bundle/assets/js/service.js` — `_SEMANTIC_TYPES`/`_OTHER_TYPES`/`_CATALOG_RTYPES`, `resourceTabs`, `navSections`, `tabForRtype` (the sidebar mirror)
+- `frontend/test/unit/layerTypes.test.ts`, `frontend/test/unit/RtypeDropdown.test.tsx`
 
 ## ERD from dbterd's built-in json target
 
@@ -692,7 +817,15 @@ The health data dict has three parts: `dimensions` (the six DPE dimensions, each
 `testResults` (the per-test pass/fail detail from `run_results.json`, or `null`),
 and `note` (set when `run_results.json` was absent). The SPA renders a **scorecard
 + collapsible dimension** page; the per-test detail is shown on each **model
-page** (split into Data tests / Unit tests), not on the Health page.
+page** (split into Data tests / Unit tests), not on the Health page. Each test
+result's `status` is normalized through `_status_value`: the parsed enum's
+`.value` is lowercased, and the adapter success aliases in `_PASS_ALIASES`
+(`"success"`/`"ok"`, emitted by Snowflake and a few others for an asserting test
+that returned 0 rows) collapse to `"pass"` so the summary pills tally correctly.
+The per-test type/column/description/kwargs come from the manifest via the shared
+`manifest_test_node_metadata` / `manifest_test_node_details` helpers (see
+**Manifest-base columns**), falling back to inferring the type from the
+`unique_id` when no manifest node is found.
 
 The rule engine is **a package**: the dimension modules live under
 `extract/health/rules/dimensions/{testing,modeling,documentation,structure,performance,governance}.py`,
@@ -708,7 +841,7 @@ fixture does this).
 
 - `dbdocs/core/config.py` — `run_results`, `health` fields, `_NON_METADATA_FIELDS` (no `evaluator` flag — health is always built)
 - `dbdocs/cli/main.py` — `--run-results` path override (no on/off flag)
-- `dbdocs/extract/health/extractor.py` — `class HealthCheckExtractor`, `TEST_CATEGORIES`, `_is_test_result`, `_is_unit_test`, `_resolve_metadata`, `_unit_test_model`, `_status_value`, `parse_run_results` (from `artifact_parser.dbt`)
+- `dbdocs/extract/health/extractor.py` — `class HealthCheckExtractor`, `TEST_CATEGORIES`, `_is_test_result`, `_is_unit_test`, `_resolve_metadata`, `_resolve_details`, `_unit_test_model`, `_status_value`, `_PASS_ALIASES`, `parse_run_results` (from `artifact_parser.dbt`)
 - `dbdocs/extract/health/dimensions.py` — `class ManifestGraph` (adjacency + `threshold`/`layer`/`materialization`/`access`/`tests_for`), `class DimensionAnalyzer` (config wiring, plugin load, disable lists)
 - `dbdocs/extract/health/rules/` — `base.py` (public `finding`, `docs_url`, `DEFAULT_THRESHOLDS`, `LAYER_PREFIXES`, `NON_PHYSICAL`), `dimensions/` (one module per dimension), `registry.py` (`DIMENSION_RULES`, `register_rule`, `reset_rules`, `load_entry_point_rules`, `load_rules_module`, `ENTRY_POINT_GROUP`), `__init__.py` (thin re-export facade)
 - `pyproject.toml` — `artifact-parser[dbt]` runtime dependency
@@ -717,4 +850,492 @@ fixture does this).
 - `dbdocs/site/builder.py` — `def _resolve_run_results_path`, `def build_data` (health key, `config=config.health`)
 - `dbdocs/site/bundle/assets/js/data.js` — `normalize()` health default (`dimensions`/`testResults`/`note`)
 - `dbdocs/site/bundle/assets/js/service.js` — `healthDimensions`, `healthEnabled` (issues>0), `healthTotalIssues`, `testResultsForNode` (data/unit split)
-- `dbdocs/site/bundle/assets/js/ui.js` — `renderHealth`, `healthScorecard`, `healthDimensionSection`, `nodeTestResults` (model-page Tests)
+- `dbdocs/site/bundle/assets/js/ui.js` — `renderHealth`, `healthScorecard`, `healthDimensionSection`, `_testsSection` (model-page Tests node-section)
+
+## Node detail fields + client-derived dependency lists
+
+### Theory
+
+Each node record in the data dict carries manifest-declared detail fields beyond
+the core identity columns: **`materialization`** (from `config.materialized`),
+**`meta`** (node-level, falling back to `config.meta`), **`access`**, **`group`**,
+**`contract_enforced`** (from `contract.enforced`), **`version`** /
+**`latest_version`**, **`owner`** (resolved to a display string: `name` then
+`email`), **`original_file_path`**, **`patch_path`**, and **`stats`** (catalog
+node stats filtered to `include=True` entries — warehouse statistics like row
+count, last modified).
+
+All reads are defensive (`getattr(..., None) or default`) so a missing attribute
+on any node type (source, seed, snapshot, exposure) always returns a safe empty
+value.
+
+**Depends-on and Referenced-by are never re-shipped in the payload.** The lineage
+graph (`DATA.lineage.parents` / `DATA.lineage.children`) is already in the data
+dict. `service.js` exposes `dependsOn(id)` and `referencedBy(id)` that derive
+these lists client-side — zero payload growth. `ui.js` renders them as chip lists
+with resource-type color dots and deep links (`#/node/<id>`).
+
+### Example
+
+```python
+# dbdocs/extract/nodes.py — defensive getattr reads; catalog stats filtered to include=True
+def _catalog_stats(catalog_node: Any) -> dict:
+    raw = getattr(catalog_node, "stats", {}) or {} if catalog_node else {}
+    return {
+        k: {"label": getattr(v, "label", k), "value": getattr(v, "value", None)}
+        for k, v in raw.items()
+        if getattr(v, "include", False)
+    }
+
+"materialization": getattr(config, "materialized", None) or "",
+"meta": getattr(entity, "meta", None) or getattr(config, "meta", None) or {},
+"contract_enforced": bool(getattr(contract, "enforced", False)),
+"stats": _catalog_stats(catalog_node),
+```
+
+```javascript
+// dbdocs/site/bundle/assets/js/service.js — derive deps from lineage, zero payload growth
+export function dependsOn(id) {
+  return resolveDeps((DATA.lineage.parents || {})[id]);
+}
+export function referencedBy(id) {
+  return resolveDeps((DATA.lineage.children || {})[id]);
+}
+```
+
+- `dbdocs/extract/nodes.py` — `_catalog_stats`, `_owner_string`, `_node_record` (all new detail fields)
+- `dbdocs/site/bundle/assets/js/service.js` — `dependsOn`, `referencedBy`, `resolveDeps` (public — `ui.js` reads it cross-module)
+- `dbdocs/site/bundle/assets/js/ui.js` — `nodeDetailsBlock`, `depChipList`, `_depSection` (wraps deps in nodeSection)
+- `dbdocs/site/bundle/assets/css/style.css` — `.node-details`, `.dep-chips`, `.dep-chip`
+
+## Static REST /api/v1 surface
+
+### Theory
+
+`generate()` writes a static, addressable JSON API tree under `<output_dir>/api/v1/`
+from the **same `data` dict** assembled for the SPA payload — not a second render
+path. It gives external consumers a stable, addressable JSON API: any static host
+serves the files as-is, and AI agents / MCP servers can fetch them headless
+without parsing HTML.
+
+Layout:
+
+- `api/v1/schema/` — four JSON Schema (draft 2020-12) files, one per doc type,
+  written from the `SCHEMA_FILES` dict in `dbdocs/site/api_schema.py`. They are
+  hand-authored module-level literals (not generated from runtime data) so they
+  are the normative contract. Schemas use `additionalProperties: true` on
+  extension points so per-resource-type sub-dicts and future fields never fail
+  validation.
+- `api/v1/index.json` — entry-point index: `{$schema, metadata, counts,
+  generated_at, nodes: [{$schema, id, name, label, resource_type, database,
+  schema, description, node_url}]}`. `node_url` is relative (`nodes/<id>.json`)
+  so the tree works on any base path.
+- `api/v1/nodes/<unique_id>.json` — one file per node: the full node record
+  enriched with `depends_on` (the node's parents list from `lineage.parents`),
+  `referenced_by` (children), `columnLineage` (this node's upstream columns slice
+  of `data["columnLineage"]`), and `column_referenced_by` (this node's downstream
+  columns slice — which other columns depend on this node's columns). Both slices
+  are bucketed by node id **once** up front (reusing `_index_column_lineage` on
+  the upstream map and on `_invert_column_lineage(...)` for the downstream map),
+  keeping `_write_api` linear on a 3000-model project instead of O(N²).
+  Self-contained for an agent: single fetch, both directions, no graph traversal.
+- `api/v1/lineage.json` — `{$schema, ...data["lineage"]}` (edges, parents, children).
+- `api/v1/health.json` — `{$schema, ...data["health"]}`.
+- `api/v1/column-lineage.json` — whole-graph column lineage: `{$schema, skipped, edges, children}`.
+  `edges` is the upstream map verbatim (each key lists what it derives from);
+  `children` is its inversion built by `_invert_column_lineage` (each upstream
+  column lists the downstream columns that depend on it — the impact-analysis
+  direction, mirroring `lineage.children` at the node level). `skipped` is the
+  count of models `ColumnLineageExtractor` could not parse, captured in
+  `data["columnLineageMeta"]["skipped"]` — a sibling key of `data["columnLineage"]`
+  (not inside it, since the flat map's keys are all `unique_id.column`; mixing in
+  a meta key would corrupt per-node bucketing).
+
+`_invert_column_lineage(flat_map)` is a module-level pure helper O(edges): for
+every `src.col → [{node, column}...]`, it appends `{node: owner, column: col}` to
+`children["<upstream_node>.<upstream_col>"]`. The SPA's `normalize()` ignores
+`columnLineageMeta` (it's not in the normalized shape) without crashing.
+
+Every emitted doc carries a **relative `$schema` self-pointer** (e.g.
+`"schema/index.schema.json"` for index.json, `"../schema/node.schema.json"` for
+per-node files) so any JSON-Schema-aware tool can validate docs without a
+network round-trip and the pointers survive versioned/aliased deploy base paths.
+All files use `_serialize()` — the same deterministic serialization (compact
+separators, `sort_keys=True`, `_json_default`) as the main gzip payload, so
+output is reproducible across runs. The api/ dir is created after the
+`rmtree`+`copytree` bundle stage so it is never clobbered by re-runs; it is
+generated at runtime, not shipped in the wheel (the `pyproject.toml` artifacts
+glob covers only `dbdocs/site/bundle/**/*`). Unique_ids that contain `/` or `\`
+are skipped with a warning — dbt unique_ids never contain them, but the guard
+prevents any path-traversal write.
+
+A **drift test** wired into the 100%-coverage gate validates that every emitted
+doc passes `Draft202012Validator.validate()` against its schema, that each schema
+is itself valid (`check_schema`), and that the `SCHEMA_FILES` constants exactly
+match what was written on disk — so a data-dict shape change that breaks the
+schema surfaces as a test failure before a release.
+
+### Example
+
+```python
+# dbdocs/site/api_schema.py — hand-authored normative schema literals
+COLUMN_LINEAGE_SCHEMA: dict = {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "column-lineage.schema.json",
+    "required": ["$schema", "skipped", "edges", "children"],
+    # edges / children: additionalProperties → array of {node, column} items
+}
+SCHEMA_FILES: dict = {
+    "index.schema.json": INDEX_SCHEMA,
+    "node.schema.json": NODE_SCHEMA,
+    "lineage.schema.json": LINEAGE_SCHEMA,
+    "health.schema.json": HEALTH_SCHEMA,
+    "column-lineage.schema.json": COLUMN_LINEAGE_SCHEMA,
+}
+
+# dbdocs/site/builder.py — _invert_column_lineage: O(edges) downstream map
+def _invert_column_lineage(column_lineage: dict) -> dict:
+    children: dict = {}
+    for key, upstream_refs in column_lineage.items():
+        owner_node, owner_col = str(key).rsplit(".", 1)
+        for ref in upstream_refs:
+            upstream_key = f"{ref['node']}.{ref['column']}"
+            children.setdefault(upstream_key, []).append({"node": owner_node, "column": owner_col})
+    return children
+
+# build_data(): capture extractor instance to read .skipped after .extract()
+cl_extractor = ColumnLineageExtractor(manifest, catalog, dialect=dialect)
+column_lineage = cl_extractor.extract()
+data["columnLineageMeta"] = {"skipped": cl_extractor.skipped}
+
+# _write_api(): bucket both directions once; write column-lineage.json
+inverted_column_lineage = _invert_column_lineage(raw_column_lineage)
+column_referenced_by_node = _index_column_lineage(inverted_column_lineage)
+# enriched["column_referenced_by"] = column_referenced_by_node.get(node_id, {})
+column_lineage_doc = {
+    "$schema": "schema/column-lineage.schema.json",
+    "skipped": column_lineage_meta.get("skipped", 0),
+    "edges": raw_column_lineage,
+    "children": inverted_column_lineage,
+}
+```
+
+- `dbdocs/site/api_schema.py` — `INDEX_SCHEMA`, `NODE_SCHEMA` (`column_referenced_by`), `LINEAGE_SCHEMA`, `HEALTH_SCHEMA`, `_COLUMN_REF_ITEM`, `COLUMN_LINEAGE_SCHEMA`, `SCHEMA_FILES`
+- `dbdocs/site/builder.py` — `_UNSAFE_ID_CHARS`, `def _index_column_lineage`, `def _invert_column_lineage`, `def _serialize`, `def _write_api`, `def generate`, `def build_data` (`cl_extractor`, `columnLineageMeta`)
+- `pyproject.toml` — `jsonschema>=4.20` in the `dev` dependency group
+- `tests/unit/site/test_builder.py` — `test_generate_writes_api_v1_files`, `test_api_index_lists_all_nodes`, `test_api_per_node_file_is_self_contained`, `test_api_output_is_deterministic`, `test_api_unsafe_id_skipped`, `test_api_schema_files_are_written`, `test_api_schema_files_are_valid_draft2020`, `test_api_doc_schema_pointer_exists`, `test_api_node_doc_schema_pointer_exists`, `test_api_doc_validates_against_schema`, `test_api_node_docs_validate_against_node_schema`, `test_api_schema_literals_match_emitted_files`, `test_invert_column_lineage_*`, `test_build_data_has_column_lineage_meta`, `test_generate_writes_column_lineage_json`, `test_column_lineage_json_*`, `test_api_per_node_has_column_referenced_by`, `test_api_per_node_column_referenced_by_slice`, `test_api_node_docs_with_column_referenced_by_validate_against_schema`
+
+## First-class non-physical resource nodes
+
+### Theory
+
+Every dbt resource type that a user would want to navigate — metrics, semantic
+models, saved queries, unit tests, exposures, analyses, and operations — is a
+first-class entry in the `nodes` dict, not just a count. `build_nodes`
+(`dbdocs/extract/nodes.py`) handles two categories:
+
+**Physical resources** (models, seeds, snapshots, sources, analyses, operations)
+are emitted through `_node_record`, which carries database/schema from the
+manifest and the full column/code/stats envelope. Analyses and operations share
+the same envelope but always receive `catalog_node=None` (they have no catalog
+entry).
+
+**Typeless resources** (metrics, semantic_models, saved_queries, unit_tests,
+exposures) live in their own `manifest.<collection>` mappings and are emitted by
+dedicated builder functions (`_metric_record`, `_semantic_model_record`,
+`_saved_query_record`, `_unit_test_record`, `_exposure_record`). Each wraps
+`_base_envelope` (id, name, label, resource_type, package, description, tags,
+meta) and adds a type-specific payload sub-dict keyed by resource_type (e.g.
+`metric: {type, label, filter, type_params}`, `exposure: {type, owner_name,
+owner_email, maturity, url}`). Since they have no real database/schema they carry
+`database=""` / `schema=""` and are **excluded from `build_tree`**. Navigation is
+via a horizontal **resource-type tab strip** in the sidebar (not a fake db bucket).
+
+**Sidebar 3-tab strip.** The sidebar mirrors the same three bands as the graph's
+**Layer-band DAG filter** — `catalog`, `semantic` (the dbt Semantic Layer proper:
+metrics/semantic models/saved queries), and `other` (typeless non-SL: unit
+tests/exposures). `service.js` exposes `resourceTabs()` (up to 3 entries:
+`{key:"catalog", ...}` always, plus `{key:"semantic", ...}` / `{key:"other", ...}`
+each when its band has any node), `navSections(tabKey)` (ordered
+`[{rtype, label, count, ids}]` for the non-empty types in that band), and
+`tabForRtype(rtype)` (which band a resource type lives under). The band membership
+lives once in `_SEMANTIC_TYPES`/`_OTHER_TYPES`/`_CATALOG_RTYPES` — **don't** put
+unit_test/exposure under semantic. `ui.js` builds a `<div role="tablist">` with
+`<button role="tab">` elements; the active tab is persisted via
+`localStorage("dbdocs-nav-tab")` — valid values are `"catalog"`, `"semantic"`, and
+`"other"` (`_NAV_TAB_KEYS`); any other stored value (e.g. an old per-type key)
+falls back to `"catalog"`. The catalog tab renders the db→schema tree
+(`_buildCatalogPanel`); a typeless tab renders one `<details open>` per section
+(`_buildTypelessPanel(tabKey)`, same `nav-section nav-sl-section` idiom). On a
+deep-link to a typeless node, `highlightNav` auto-switches to
+`svc.tabForRtype(n.resource_type)` and force-opens the matching sub-section.
+`filterNav` filters both the db-tree schema groups and the typeless sub-sections.
+
+**`LineageGraph`** includes all surfaced types in its default node_ids so that
+`parents`/`children` maps — consumed by `dependsOn`/`referencedBy` in the SPA —
+resolve cross-type edges (e.g. metric → semantic_model → model). The visual DAG
+is unchanged because the graph bundle's `data-rtype` filter drops non-physical
+nodes from the rendered view. Macros are excluded from both nodes and the
+lineage graph: a real project carries hundreds of package-vendor macros that
+would flood the nav, and macros already render inline under models that depend on
+them via `macros_used`.
+
+**`service.js`** extends `RTYPE_ORDER` to rank the new types after physical ones
+(analysis/operation before semantic-layer types), so `sortedNodeIds` never
+returns `undefined`. Payload accessors (`metricPayload`, `semanticModelPayload`,
+etc.) are DOM-free pure functions in the service tier.
+
+**`ui.js renderNode`** dispatches by `resource_type` before the existing physical
+branch: each new type gets a dedicated render function (`renderMetricNode`,
+`renderSemanticModelNode`, `renderSavedQueryNode`, `renderUnitTestNode`,
+`renderExposureNode`) plus a shared `renderCodeOnlyNode` for analysis/operation.
+Physical resources (model, source, seed, snapshot) route to the renamed
+`renderPhysicalNode` — behavior unchanged. New pages reuse `el`, `icon`,
+`codeTabs`, and `nodeDepsBlock`; they do not render columns, tests, or an ERD
+panel (types that have none of those). **Duplicate "Depends on" rule:** never call
+`depChips(n.depends_on_nodes, …)` on typeless nodes — `nodeDepsBlock(n)` already
+shows both upstream (`dependsOn`) and downstream (`referencedBy`) from the lineage
+graph. Using both was a bug that rendered the section twice.
+
+The `COLLECTION_ATTRS` dict (maps id-prefix → manifest attribute name, e.g.
+`"saved_query." → "saved_queries"`) is the single authoritative mapping shared
+between `nodes.py` (emit loop) and `graph.py` (default node_ids + _lookup).
+It lives in `core/artifacts.py` alongside `NODE_PREFIXES` and `CODE_ONLY_PREFIXES`
+so that both modules import it from `core` — never from each other. Don't derive
+attribute names by string mutation — `saved_query.rstrip(".") + "s"` produces
+`saved_querys`, not `saved_queries`.
+
+### Example
+
+```python
+# dbdocs/core/artifacts.py — public constants shared across extract modules
+CODE_ONLY_PREFIXES = ("analysis.", "operation.")
+COLLECTION_ATTRS: "dict[str, str]" = {
+    "metric.": "metrics",
+    "semantic_model.": "semantic_models",
+    "saved_query.": "saved_queries",
+    "unit_test.": "unit_tests",
+    "exposure.": "exposures",
+}
+```
+
+```python
+# dbdocs/extract/nodes.py — typeless resources carry empty database/schema; excluded from tree
+_PHYSICAL_PREFIXES = NODE_PREFIXES + CODE_ONLY_PREFIXES + ("source.",)
+
+# _metric_record — base envelope + type-specific payload; no synthetic db/schema
+record = _base_envelope(unique_id, entity, "metric")
+record["database"] = ""
+record["schema"] = ""
+record["metric"] = { "type": ..., "label": ..., "filter": ..., "type_params": ... }
+
+# build_tree — skips any id not starting with a physical prefix
+def build_tree(nodes):
+    for unique_id, record in nodes.items():
+        if not str(unique_id).startswith(_PHYSICAL_PREFIXES):
+            continue
+        # ... only physical nodes reach the db/schema grouping
+```
+
+```javascript
+// service.js — resourceTabs for the sidebar 3-tab strip
+export function resourceTabs() {
+  // [{key:"catalog", label:"Catalog", count:N}, {key:"semantic", ...}, {key:"other", ...}]
+  // semantic / other tabs are omitted when their band count == 0
+}
+export function navSections(tabKey) { /* [{rtype, label, count, ids}] for the band */ }
+export function tabForRtype(rtype) { /* "semantic" | "other" | "catalog" */ }
+export function isCatalogNode(id) { /* true for physical rtypes */ }
+
+// ui.js — tab strip with keyboard nav + localStorage persistence
+export function buildNav() {
+  // ... nav-cta links (overview/dag/health) ...
+  // tabStrip: role="tablist", each tab role="tab" aria-selected
+  // renderSidebarBody(tabKey): catalog → db tree, else → _buildTypelessPanel(tabKey)
+}
+function highlightNav(r) {
+  if (r.view === "node" && r.id && !svc.isCatalogNode(r.id)) {
+    activateNavTab(svc.tabForRtype(n.resource_type)); // auto-switch to the node's band
+  }
+}
+```
+
+- `dbdocs/core/artifacts.py` — `CODE_ONLY_PREFIXES`, `COLLECTION_ATTRS` (public; both modules import from here)
+- `dbdocs/extract/nodes.py` — `_PHYSICAL_PREFIXES`, `_COLLECTION_PREFIXES`, `_base_envelope`, `_metric_record`, `_metric_type_params`, `_semantic_model_record`, `_sm_items`, `_saved_query_record`, `_export_item`, `_fixture_rows` (unit-test given/expect data table, capped at `_FIXTURE_ROW_CAP` with the uncapped `total` kept), `_FIXTURE_ROW_CAP`, `_unit_test_given_item`, `_unit_test_record`, `_exposure_record`, `build_nodes` (extended), `build_tree` (physical-only)
+- `dbdocs/extract/graph.py` — `_default_node_ids` (extended), `_lookup` (extended)
+- `dbdocs/site/bundle/assets/js/service.js` — `RTYPE_ORDER` (extended), `_SEMANTIC_TYPES`/`_OTHER_TYPES`/`_TAB_TYPES`/`_CATALOG_RTYPES`, `resourceTabs`, `navSections`, `tabForRtype`, `isCatalogNode`, `metricPayload`, `semanticModelPayload`, `savedQueryPayload`, `unitTestPayload`, `exposurePayload`
+- `dbdocs/site/bundle/assets/js/ui.js` — `buildNav` (3-tab strip), `_NAV_TAB_KEYS`, `activateNavTab`, `renderSidebarBody`, `_buildTypelessPanel`, `filterNav`, `highlightNav` (auto-switch via `tabForRtype` + force-open sub-section), `renderNode` (dispatch), `renderPhysicalNode`, `renderCodeOnlyNode`, `renderMetricNode`, `renderSemanticModelNode`, `renderSavedQueryNode`, `renderUnitTestNode` (given/expect data tables via `fixtureBody`), `renderExposureNode`
+- `tests/conftest.py` — `metric_entity`, `semantic_model_entity`, `saved_query_entity`, `unit_test_entity`, `exposure_entity`
+
+## Semantic-layer enum + object cleanup and client-side cross-linking
+
+### Theory
+
+`artifact_parser` represents many semantic-layer fields as **Pydantic enums** and
+**named sub-objects** rather than plain strings. Two module-level helpers in
+`nodes.py` centralise the cleanup before any value lands in the data dict:
+
+- **`_enum_value(val)`** — returns `val.value` when the value has a `value`
+  attribute (a Pydantic enum), otherwise returns `val` as-is (plain strings pass
+  through unchanged). Apply whenever you read a field that could be an enum:
+  `metric.type`, `dimension.type`, `entity.type`, `measure.agg`,
+  `exposure.type`/`maturity`, `export_config.export_as`.
+- **`_object_name(val)`** — resolves a metric/measure/entity reference to a plain
+  display name across the three shapes `artifact_parser` versions emit: an object
+  with `.name` (a `Measure`/`MetricInput`) → `val.name`; a literal string repr
+  like `Entity('customer')` / `Dimension("foo")` → the quoted inner name (matched
+  by the module-level `_ENTITY_REPR` regex); a plain string → as-is. Apply
+  whenever a `type_params` field might be a named object or such a repr rather than
+  a plain string: `measure`, `numerator`, `denominator`, and items in `metrics` /
+  `input_measures` / `group_by` / `where` lists.
+
+The export config gotcha: dbt's `Config58` stores the target schema in
+**`schema_name`**, not the `schema_`/`schema` aliases used by manifest nodes.
+`_export_item` reads `schema_name` first, then falls back to `schema_` (the
+manifest-node alias), so it works regardless of artifact version.
+
+`_sm_items` applies `str(_enum_value(val))` to every extracted attribute, so all
+dimension/entity/measure type enums are unwrapped in one place.
+
+**Cross-linking is resolved client-side from the nodes dict, not pre-shipped.**
+Three DOM-free accessors in `service.js` drive the linking:
+
+- **`metricByName(name)`** — scans nodes for `resource_type === "metric"` with
+  matching `name`; returns `{id, label}` or `null`. Used by the metric
+  `type_params.metrics` list and the saved-query metrics list.
+- **`semanticModelForMeasure(measureName)`** — scans nodes for
+  `resource_type === "semantic_model"` that declares the named measure; returns
+  `{id, label}` or `null`. Used by the metric `type_params.measure` /
+  `numerator` / `denominator` / `input_measures` fields.
+- **`metricsForSemanticModel(nodeId)`** — returns sorted `[{id, label}]` of all
+  metrics whose `type_params.input_measures` overlap with the semantic model's
+  declared measures (the reverse direction — "Metrics built on this model").
+
+`input_measures` is the reliable cross-link key (Python always emits it from
+`type_params.input_measures`; it's present even for simple/ratio/derived types and
+lists every measure the metric touches, not just the primary one). `measure` /
+`numerator` / `denominator` are the human-readable singular forms and link to the
+owning semantic model.
+
+**`ui.js`** renders the cross-links as `dep-chip` anchors with resource-type
+color dots, consistent with the existing `depChips` style:
+
+- `renderMetricNode` — `type_params.metrics` → `metricNameLink` chips (deep
+  links to the referenced metric pages); `type_params.measure` / `numerator` /
+  `denominator` / `input_measures` → `measureNameLink` chips (deep link to the
+  owning semantic model, showing `<sm_label>.<measure_name>`).
+- `renderSemanticModelNode` — "Metrics built on this model" section using
+  `metricsForSemanticModel`.
+- `renderSavedQueryNode` — metrics list → `metricNameLink` chips instead of plain
+  `<code>` tags.
+
+### Example
+
+```python
+# dbdocs/extract/nodes.py — enum + object cleanup helpers
+def _enum_value(val: Any) -> Any:
+    return val.value if hasattr(val, "value") else val
+
+def _object_name(val: Any) -> str:
+    name = getattr(val, "name", None)
+    return str(name) if name is not None else str(val)
+
+# _metric_type_params — extract .name from Measure/MetricInput objects
+for attr in ("measure", "numerator", "denominator"):
+    val = getattr(type_params, attr, None)
+    if val is not None:
+        result[attr] = _object_name(val)
+for list_attr in ("metrics", "input_measures"):
+    items = getattr(type_params, list_attr, None)
+    if items:
+        result[list_attr] = [_object_name(m) for m in items]
+
+# _export_item — schema_name (Config58) not schema_ (manifest-node alias)
+raw_schema = (
+    getattr(config, "schema_name", None)
+    or getattr(config, "schema_", None)
+    or ""
+)
+raw_export_as = getattr(config, "export_as", None)
+"export_as": str(_enum_value(raw_export_as)) if raw_export_as is not None else "",
+```
+
+```javascript
+// dbdocs/site/bundle/assets/js/service.js — cross-link resolution, DOM-free
+export function metricByName(name) { /* scan nodes, return {id, label} or null */ }
+export function semanticModelForMeasure(measureName) { /* scan semantic_models for measure name */ }
+export function metricsForSemanticModel(nodeId) {
+  /* input_measures overlap: which metrics use this sm's measures? */
+  var smMeasureNames = {};
+  ((sm.semantic_model && sm.semantic_model.measures) || []).forEach(...);
+  // key off input_measures — present for all metric types
+  var inputMeasures = (n.metric && n.metric.type_params && n.metric.type_params.input_measures) || [];
+  var linked = inputMeasures.some(function (name) { return smMeasureNames[name]; });
+}
+```
+
+- `dbdocs/extract/nodes.py` — `_enum_value`, `_object_name`, `_ENTITY_REPR` (literal-repr fallback), `_metric_type_params` (`input_measures` added), `_sm_items` (uses `_enum_value`), `_export_item` (`schema_name`, enum `export_as`), `_exposure_record` (enum `type`/`maturity`)
+- `dbdocs/site/bundle/assets/js/service.js` — `metricByName`, `semanticModelForMeasure`, `metricsForSemanticModel`
+- `dbdocs/site/bundle/assets/js/ui.js` — `metricNameLink`, `measureNameLink`, `renderMetricNode` (linked type_params), `renderSemanticModelNode` ("Metrics built on this model"), `renderSavedQueryNode` (metric deep links)
+- `tests/unit/extract/test_nodes.py` — `_fake_enum`, `_fake_measure`, `test_enum_value_*`, `test_object_name_*`, `test_metric_type_is_unwrapped_from_enum`, `test_metric_type_params_*_object*`, `test_sm_items_enum_*`, `test_export_item_*`, `test_exposure_record_enum_*`
+
+## Collapsible node-page sections (`nodeSection`)
+
+### Theory
+
+Every section on every node page is a native `<details class="node-section">` block returned by `nodeSection(opts)`. The pattern:
+
+- `nodeSection({ id, title, count, defaultOpen, actions, body, nodeId })` returns a `<details id="node-sec-{id}">` whose `<summary>` shows the section title (at h3 visual weight), an optional muted count badge, and any action buttons right-aligned via `margin-left: auto`. Clicking an action stops propagation so it doesn't toggle the section.
+- **State persistence** — on each `toggle` event, `_setSectionOpen(nodeId, sectionId, open)` writes to `localStorage("dbdocs-node-sections")`: `{ [nodeId]: { [sectionId]: bool }, _order: [nodeId,…] }`, capped at 100 most-recently-touched node ids (LRU by `_order`). On render, `_getSectionOpen(nodeId, sectionId, defaultOpen)` restores the stored state or falls back to the render-time default.
+- **Expand all / Collapse all** — `expandCollapseBtn()` queries all `.node-section` elements on the page; if any is closed it sets all open; if all are open it closes all. Added to the badges row in `nodePageHeader`. It registers a single capturing `app` `toggle` listener tracked at module scope (`expandCollapseRefresh`); each render and every non-node `route()` removes the prior listener before attaching a new one, so navigating between node pages never leaks accumulating `refresh` closures on the persistent `app` element. The button label (`Expand all`/`Collapse all`) is its own accessible name — no aggregate `aria-expanded` (each `<details>` already exposes its own open state to AT).
+- **Deep-link `?sec=<suffix>`** — `route()` calls `focusSection(sec)` which forces `node-sec-{sec}` open and scrolls it into view after layout. `?col=` deep-links also force `node-sec-columns` open via `_forceNodeSectionOpen`.
+- **Lazy ERD mount** — the Related ERD section starts default-closed; its `<details>` `toggle` listener mounts the React Flow bundle the first open and reuses the host thereafter. Navigation away cleans up via the existing `unmountGraph()` at the top of `route()`.
+- **Heavy sections default-closed** — Related ERD and Transformation logic start closed; all data-bearing sections (Details, Depends on, Referenced by, Columns, Tests) start open when non-empty.
+
+### Example
+
+```javascript
+// dbdocs/site/bundle/assets/js/ui.js — nodeSection factory; state persistence
+function nodeSection(opts) {
+  var isOpen = _getSectionOpen(opts.nodeId, opts.id, !!opts.defaultOpen);
+  var summary = el("summary", { class: "node-section-summary" }, [
+    el("span", { class: "node-section-title" }, [opts.title]),
+    /* count badge, actions (stopPropagation-guarded) */
+  ]);
+  var details = el("details", { class: "node-section", id: "node-sec-" + opts.id, ...(isOpen ? {open:""} : {}) }, [summary, body]);
+  details.addEventListener("toggle", function () {
+    _setSectionOpen(opts.nodeId, opts.id, details.open);
+  });
+  return details;
+}
+
+// _erdSection: lazy mount (default-closed; mount on first open)
+function _erdSection(n) {
+  var host = el("div", { class: "erd-section-host" });
+  var mounted = false;
+  var sec = nodeSection({ nodeId: n.id, id: "erd", title: "Related ERD", defaultOpen: false, body: host });
+  sec.addEventListener("toggle", function () {
+    if (sec.open && !mounted) { mounted = true; host.appendChild(graphMount("erd-node", n.id)); }
+  });
+  return sec;
+}
+```
+
+**`renderPhysicalNode` section order and defaults:**
+
+| Section id | Title | Default | Count |
+|---|---|---|---|
+| `details` | Details | open | — |
+| `depends-on` | Depends on | open if non-empty | N upstream |
+| `referenced-by` | Referenced by | open if non-empty | N downstream |
+| `columns` | Columns | open | `columnCount(n)` |
+| `tests` | Tests | open if non-empty | `testResultsForNode(id).summary.total` |
+| `erd` | Related ERD | **closed** | — |
+| `sql` | Transformation logic | **closed** | — |
+| (inside sql) `macros` | Macros used | **closed** | `macroCount(n)` |
+
+All other renderer types follow the same open-if-non-empty / always-open-for-primary defaults; none have heavy ERD/SQL sections.
+
+- `dbdocs/site/bundle/assets/js/ui.js` — `nodeSection`, `_getSectionOpen`, `_setSectionOpen`, `_loadSectionState`, `_saveSectionState`, `expandCollapseBtn`, `focusSection`, `_forceNodeSectionOpen`, `_depSection`, `_physicalDetailsSection`, `_columnsSection`, `_testsSection`, `_erdSection`, `_sqlSection`, `renderPhysicalNode`, `renderCodeOnlyNode`, `renderMetricNode`, `renderSemanticModelNode`, `renderSavedQueryNode`, `renderUnitTestNode`, `renderExposureNode`
+- `dbdocs/site/bundle/assets/js/service.js` — `columnCount`, `macroCount`
+- `dbdocs/site/bundle/assets/css/style.css` — `details.node-section`, `.node-section-summary`, `.node-section-title`, `.node-section-count`, `.node-section-summary-actions`, `.node-section-body`, `.expand-collapse-btn`, `.erd-section-host`, `@media print`

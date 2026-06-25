@@ -60,6 +60,18 @@ def column(name, type_="varchar", tags=None, description=""):
     return SimpleNamespace(name=name, type=type_, tags=tags or [], description=description)
 
 
+def make_test_node(*, test_type=None, attached_node=None, column_name=None):
+    """A manifest test-node fake (``test.*`` prefix). Mirrors the fields the test
+    extractor and column-tests index read: ``test_metadata.name``,
+    ``attached_node``, ``column_name``."""
+    metadata = SimpleNamespace(name=test_type) if test_type is not None else None
+    return SimpleNamespace(
+        test_metadata=metadata,
+        attached_node=attached_node,
+        column_name=column_name,
+    )
+
+
 def node(
     unique_id,
     columns=None,
@@ -77,6 +89,16 @@ def node(
     depends_on_macros=None,
     name=None,
     alias=None,
+    materialization="view",
+    meta=None,
+    access="",
+    group="",
+    contract_enforced=False,
+    version=None,
+    latest_version=None,
+    owner=None,
+    original_file_path="",
+    patch_path="",
 ):
     """A manifest node/source fake. ``schema`` is stored as ``schema_`` (alias)."""
     short = unique_id.split(".")[-1]
@@ -97,6 +119,16 @@ def node(
         compiled_code=compiled_code,
         columns=columns or {},
         depends_on=SimpleNamespace(nodes=depends_on_nodes or [], macros=depends_on_macros or []),
+        config=SimpleNamespace(materialized=materialization, meta=meta or {}),
+        meta=meta or {},
+        access=access,
+        group=group,
+        contract=SimpleNamespace(enforced=contract_enforced),
+        version=version,
+        latest_version=latest_version,
+        owner=owner,
+        original_file_path=original_file_path,
+        patch_path=patch_path,
     )
 
 
@@ -109,9 +141,141 @@ def macro(unique_id, macro_sql="{% macro m() %}{% endmacro %}", package_name="sh
     )
 
 
+def metric_entity(
+    unique_id,
+    *,
+    metric_type="simple",
+    label="",
+    description="",
+    group="",
+    tags=None,
+    depends_on_nodes=None,
+    filter_val=None,
+    type_params=None,
+):
+    """A manifest metric fake."""
+    return SimpleNamespace(
+        name=unique_id.split(".")[-1],
+        label=label,
+        description=description,
+        type=metric_type,
+        type_params=type_params,
+        filter=filter_val,
+        group=group,
+        tags=tags or [],
+        meta={},
+        package_name=unique_id.split(".")[1] if unique_id.count(".") >= 2 else "shop",
+        depends_on=SimpleNamespace(nodes=depends_on_nodes or []),
+    )
+
+
+def semantic_model_entity(
+    unique_id,
+    *,
+    model="",
+    description="",
+    depends_on_nodes=None,
+    entities=None,
+    dimensions=None,
+    measures=None,
+    tags=None,
+):
+    """A manifest semantic_model fake."""
+    return SimpleNamespace(
+        name=unique_id.split(".")[-1],
+        description=description,
+        model=model,
+        entities=entities or [],
+        dimensions=dimensions or [],
+        measures=measures or [],
+        tags=tags or [],
+        meta={},
+        package_name=unique_id.split(".")[1] if unique_id.count(".") >= 2 else "shop",
+        depends_on=SimpleNamespace(nodes=depends_on_nodes or []),
+    )
+
+
+def saved_query_entity(
+    unique_id,
+    *,
+    label="",
+    description="",
+    metrics=None,
+    group_by=None,
+    where=None,
+    exports=None,
+    depends_on_nodes=None,
+    tags=None,
+):
+    """A manifest saved_query fake."""
+    query_params = SimpleNamespace(
+        metrics=metrics or [],
+        group_by=group_by or [],
+        where=where or [],
+    )
+    return SimpleNamespace(
+        name=unique_id.split(".")[-1],
+        label=label,
+        description=description,
+        query_params=query_params,
+        exports=exports or [],
+        tags=tags or [],
+        meta={},
+        package_name=unique_id.split(".")[1] if unique_id.count(".") >= 2 else "shop",
+        depends_on=SimpleNamespace(nodes=depends_on_nodes or []),
+    )
+
+
+def unit_test_entity(
+    unique_id, *, model="", description="", given=None, expect=None, depends_on_nodes=None
+):
+    """A manifest unit_test fake."""
+    return SimpleNamespace(
+        name=unique_id.split(".")[-1],
+        model=model,
+        description=description,
+        given=given or [],
+        expect=expect,
+        tags=[],
+        meta={},
+        package_name=unique_id.split(".")[1] if unique_id.count(".") >= 2 else "shop",
+        depends_on=SimpleNamespace(nodes=depends_on_nodes or []),
+    )
+
+
+def exposure_entity(
+    unique_id,
+    *,
+    exposure_type="dashboard",
+    label="",
+    description="",
+    maturity="",
+    url="",
+    owner_name="",
+    owner_email="",
+    depends_on_nodes=None,
+    tags=None,
+):
+    """A manifest exposure fake."""
+    owner = SimpleNamespace(name=owner_name, email=owner_email)
+    return SimpleNamespace(
+        name=unique_id.split(".")[-1],
+        type=exposure_type,
+        label=label,
+        description=description,
+        maturity=maturity,
+        url=url,
+        owner=owner,
+        tags=tags or [],
+        meta={},
+        package_name=unique_id.split(".")[1] if unique_id.count(".") >= 2 else "shop",
+        depends_on=SimpleNamespace(nodes=depends_on_nodes or []),
+    )
+
+
 @pytest.fixture
 def fake_manifest():
-    """A manifest with a model, a source, a seed, a test (skipped) and a macro."""
+    """A manifest with a model, a source, a seed, test nodes and a macro."""
     model_cols = {
         "id": column("id", description="primary\nkey", tags=["pk"]),
         "name": column("name"),
@@ -139,9 +303,20 @@ def fake_manifest():
             "seed.shop.country_codes": node(
                 "seed.shop.country_codes", {"code": column("code")}, schema="raw"
             ),
-            # A test node must be skipped by the node loop.
+            # A test node must be skipped by the node loop (no test_metadata — legacy shape).
             "test.shop.not_null_customers_id": node(
                 "test.shop.not_null_customers_id", schema="analytics"
+            ),
+            # Proper test nodes: column-level, used by column-tests index tests.
+            "test.shop.not_null_customers_id_real": make_test_node(
+                test_type="not_null",
+                attached_node="model.shop.customers",
+                column_name="id",
+            ),
+            "test.shop.unique_customers_id": make_test_node(
+                test_type="unique",
+                attached_node="model.shop.customers",
+                column_name="id",
             ),
         },
         sources={

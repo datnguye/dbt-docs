@@ -34,6 +34,7 @@ from pydantic import ValidationError
 
 from dbdocs.core.log import logger
 from dbdocs.extract.health.dimensions import DimensionAnalyzer
+from dbdocs.extract.tests_index import manifest_test_node_details, manifest_test_node_metadata
 
 # ---------------------------------------------------------------------------
 # Test type → category mapping
@@ -108,13 +109,21 @@ def _is_unit_test(unique_id: str) -> bool:
     return unique_id.startswith(_UNIT_TEST_PREFIX)
 
 
+#: Adapter-emitted aliases for a successful test result, normalized to ``"pass"``
+#: so the status pills / per-test badges tally correctly. Snowflake and a few
+#: other adapters emit ``"success"`` for an asserting test that returned 0 rows.
+_PASS_ALIASES = {"success", "ok"}
+
+
 def _status_value(status: Any) -> str:
-    """The plain status string for a result.
+    """The plain status string for a result, with adapter aliases normalized.
 
     artifact-parser models ``status`` as a versioned enum (e.g. ``Status1.pass_``
     with value ``"pass"``); fall back to ``str`` for anything that isn't enum-like.
+    Adapter aliases for success (``"success"``/``"ok"``) collapse to ``"pass"``.
     """
-    return str(getattr(status, "value", status) or "unknown")
+    raw = str(getattr(status, "value", status) or "unknown").lower()
+    return "pass" if raw in _PASS_ALIASES else raw
 
 
 def _short_name(unique_id: str) -> str:
@@ -204,9 +213,12 @@ class HealthCheckExtractor:
         is_unit = _is_unit_test(uid)
         if is_unit:
             test_type, model, column, category = "unit_test", self._unit_test_model(uid), "", "unit"
+            description, kwargs = "", {}
         else:
-            test_type, model, column = self._resolve_metadata(uid)
+            node = self._nodes.get(uid)
+            test_type, model, column = self._resolve_metadata(node, uid)
             category = TEST_CATEGORIES.get(test_type, _FALLBACK_CATEGORY)
+            description, kwargs = self._resolve_details(node)
         return {
             "rule": _short_name(uid),
             "kind": "unit" if is_unit else "data",
@@ -216,24 +228,27 @@ class HealthCheckExtractor:
             "status": _status_value(getattr(result, "status", "unknown")),
             "failures": int(getattr(result, "failures", 0) or 0),
             "message": str(getattr(result, "message", "") or ""),
+            "description": description,
+            "kwargs": kwargs,
             "category": category,
             "docs_url": _UNIT_TESTS_DOCS if is_unit else _TESTS_DOCS,
         }
 
-    def _resolve_metadata(self, unique_id: str) -> "tuple[str, str, str]":
+    @staticmethod
+    def _resolve_details(node: Any) -> "tuple[str, dict]":
+        """Manifest description + kwargs for a data-test node, or ``("", {})``."""
+        return manifest_test_node_details(node) if node is not None else ("", {})
+
+    def _resolve_metadata(self, node: Any, unique_id: str) -> "tuple[str, str, str]":
         """``(test_type, model, column)`` for a *data* test, manifest-first.
 
         Reads the authoritative test type / tested model / column from the
         manifest node when available; falls back to inferring the type from the
         ``unique_id`` (model/column then unknown) when it isn't.
         """
-        node = self._nodes.get(unique_id)
         if node is not None:
-            metadata = getattr(node, "test_metadata", None)
-            test_type = str(getattr(metadata, "name", "") or "") if metadata else ""
-            model = _short_name(str(getattr(node, "attached_node", "") or ""))
-            column = str(getattr(node, "column_name", "") or "")
-            return test_type, model, column
+            test_type, attached, column = manifest_test_node_metadata(node)
+            return test_type, _short_name(attached), column
         return _infer_test_type(unique_id), "", ""
 
     def _unit_test_model(self, unique_id: str) -> str:
