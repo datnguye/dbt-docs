@@ -123,10 +123,15 @@ dbdocs/site/bundle/
 └── assets/
     ├── favicon.svg               # dbt-style default favicon (loose; the only one)
     ├── js/                       # the 3-tier ES-module shell SPA (one-way data→service→ui)
-    │   ├── data.js               #   tier 1: fetch + normalize the payload (loadData)
-    │   ├── service.js            #   tier 2: pure domain logic over the dict, ZERO DOM
-    │   ├── ui.js                 #   tier 3: all DOM rendering (nav, search, node pages, drawer)
-    │   └── app.js                #   thin entry: load data → svc.init → ui.boot
+    │   ├── app.js                #   thin entry (loose at root): load data → svc.init → ui.boot
+    │   ├── data/                 #   tier 1 (foldered)
+    │   │   └── data.js           #     fetch + normalize the payload (loadData)
+    │   ├── service/              #   tier 2 (foldered)
+    │   │   └── service.js        #     pure domain logic over the dict, ZERO DOM
+    │   └── ui/                   #   tier 3 (foldered): all DOM rendering
+    │       ├── ui.js             #     renderer (nav, search, node pages, drawer); boot/route
+    │       ├── dom.js            #     shared DOM primitives (el/clear/icon/KNOWN_ICONS)
+    │       └── overlays.js       #     command palette + toasts + shared MiniSearch index
     ├── css/
     │   └── style.css             #   dark/light styling + responsive (drawer, tables)
     ├── graph/                    # committed React Flow bundle (built from frontend/)

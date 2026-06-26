@@ -5,39 +5,16 @@
    DATA shape directly. Graphs (lineage DAG + ERDs) are rendered by the React
    Flow bundle exposed as window.dbdocsGraph. No build step. */
 
-import * as svc from "./service.js";
+import * as svc from "../service/service.js";
+import { el, clear, icon, KNOWN_ICONS } from "./dom.js";
+import { showToast, initCommandPalette, ensureSearchIndex, runSearchQuery, SEARCH_RESULT_CAP, isMacPlatform } from "./overlays.js";
 
 var app = null;
 var sidebar = null;
 var mountedGraph = null;
 var expandCollapseRefresh = null;
-
-function el(tag, attrs, children) {
-  var node = document.createElement(tag);
-  if (attrs) Object.keys(attrs).forEach(function (k) {
-    if (k === "class") node.className = attrs[k];
-    else if (k === "html") node.innerHTML = attrs[k];
-    else if (k === "text") node.textContent = attrs[k];
-    else if (k.slice(0, 2) === "on" && typeof attrs[k] === "function") node.addEventListener(k.slice(2), attrs[k]);
-    else if (attrs[k] != null) node.setAttribute(k, attrs[k]);
-  });
-  (children || []).forEach(function (c) { if (c != null) node.appendChild(typeof c === "string" ? document.createTextNode(c) : c); });
-  return node;
-}
-function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
-
-/* Icon names that have a dedicated glyph in assets/css/icons.css. Used to decide
-   whether a resource-type has its own icon or falls back to the generic one. */
-var KNOWN_ICONS = {
-  api: 1, catalog: 1, dag: 1, database: 1, info: 1, schema: 1, graph: 1, model: 1, source: 1,
-  seed: 1, snapshot: 1, test: 1, unit_test: 1, metric: 1, semantic_model: 1,
-  exposure: 1, saved_query: 1, operation: 1, fullscreen: 1, link: 1, health: 1,
-};
-/* Icons are CSS masks (Lucide glyphs, see assets/css/icons.css) — class-driven,
-   themeable, no inline SVG. `size` sets the box via font-size (the mask is 1em). */
-function icon(name, size) {
-  return el("span", { class: "ic ic--" + name, style: "font-size:" + (size || 16) + "px" });
-}
+var sectionObserver = null;
+var sectionObserverRefresh = null;
 
 function unmountGraph() {
   if (mountedGraph && window.dbdocsGraph) {
@@ -54,16 +31,16 @@ function graphMount(mode, focus, rtype, schema, erdFocus, erdSchema, layer) {
   if (layer) root.setAttribute("data-layer", layer);
   if (erdFocus) root.setAttribute("data-erd-focus", erdFocus);
   if (erdSchema) root.setAttribute("data-erd-schema", erdSchema);
+  var skeleton = el("div", { class: "graph-skeleton" });
+  root.appendChild(skeleton);
   setTimeout(function () {
+    if (root.contains(skeleton)) root.removeChild(skeleton);
     if (window.dbdocsGraph) { mountedGraph = root; window.dbdocsGraph.mount(root); }
     else root.appendChild(el("p", { class: "empty" }, ["Graph bundle not loaded."]));
   }, 0);
   return root;
 }
 
-/* Copy text to the clipboard, invoking onResult(ok) once. Guards the absent
-   clipboard API (insecure context / old browser) → onResult(false). Shared by
-   every copy-link affordance so the plumbing lives in one place. */
 function copyToClipboard(text, onResult) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(function () { onResult(true); }).catch(function () { onResult(false); });
@@ -76,37 +53,26 @@ function copyLinkButton() {
   var btn = el("button", { class: "fs-btn copy-link-btn", type: "button", title: "Copy link to this page" });
   btn.appendChild(icon("link", 15));
   btn.appendChild(document.createTextNode(" Copy link"));
-  function flash(label, ok) {
-    btn.lastChild.textContent = label;
-    btn.classList.toggle("copied", !!ok);
-    setTimeout(function () {
-      if (btn.lastChild) btn.lastChild.textContent = " Copy link";
-      btn.classList.remove("copied");
-    }, 1800);
-  }
   btn.addEventListener("click", function () {
-    copyToClipboard(location.href, function (ok) { flash(ok ? " Copied!" : " Copy unavailable", ok); });
+    copyToClipboard(location.href, function (ok) {
+      showToast(ok ? "Link copied!" : "Copy unavailable in this context.");
+    });
   });
   return btn;
 }
 
-/* Copy-link anchor for an individual node-page section. Copies a deep link
-   (#/node/<id>?sec=<sectionId>) that route() resolves via focusSection — opening
-   and scrolling to this section on load. Lives in the summary's actions slot. */
 function sectionLinkButton(nodeId, sectionId) {
   var btn = el("button", {
     class: "fs-btn section-link-btn", type: "button",
     title: "Copy link to this section", "aria-label": "Copy link to this section",
   });
   btn.appendChild(icon("link", 14));
-  function flash(ok) {
-    btn.classList.toggle("copied", !!ok);
-    setTimeout(function () { btn.classList.remove("copied"); }, 1800);
-  }
   btn.addEventListener("click", function () {
     var url = location.origin + location.pathname +
       "#/node/" + encodeURIComponent(nodeId) + "?sec=" + encodeURIComponent(sectionId);
-    copyToClipboard(url, flash);
+    copyToClipboard(url, function (ok) {
+      showToast(ok ? "Section link copied!" : "Copy unavailable in this context.");
+    });
   });
   return btn;
 }
@@ -116,6 +82,14 @@ export function route() {
   if (expandCollapseRefresh) {
     app.removeEventListener("toggle", expandCollapseRefresh, true);
     expandCollapseRefresh = null;
+  }
+  if (sectionObserverRefresh) {
+    app.removeEventListener("toggle", sectionObserverRefresh, true);
+    sectionObserverRefresh = null;
+  }
+  if (sectionObserver) {
+    sectionObserver.disconnect();
+    sectionObserver = null;
   }
   var r = svc.parseHash(location.hash);
   var routeNode = r.view === "node" && r.id ? svc.node(r.id) : null;
@@ -128,22 +102,22 @@ export function route() {
   highlightNav(r);
   app.focus();
   app.scrollTop = 0;
+  app.classList.remove("page-enter");
+  void app.offsetWidth;
+  app.classList.add("page-enter");
   if (r.view === "node" && r.query.col) {
     _forceNodeSectionOpen("node-sec-columns");
     focusColumn(r.query.col);
   }
   if (r.view === "node" && r.query.sec) focusSection(r.query.sec);
+  if (r.view === "node") _initSectionObserver();
 }
 
-/* Force a node section open by its element id (e.g. "node-sec-columns"). Used by
-   deep-link handling before focusColumn so the section is visible. */
 function _forceNodeSectionOpen(sectionId) {
   var el_ = document.getElementById(sectionId);
   if (el_ && !el_.open) el_.open = true;
 }
 
-/* Scroll the deep-linked section into view and focus its <summary>. The `sec`
-   query param carries the section suffix (e.g. "tests" → id "node-sec-tests"). */
 function focusSection(sec) {
   var target = document.getElementById("node-sec-" + sec);
   if (!target) return;
@@ -155,15 +129,39 @@ function focusSection(sec) {
   }, 0);
 }
 
-/* Scroll to + briefly highlight a column row (deep-linked from an upstream
-   column-lineage chip). Runs after route()'s scrollTop reset. */
+function _initSectionObserver() {
+  if (!window.IntersectionObserver) return;
+  var active = null;
+  sectionObserver = new IntersectionObserver(function (entries) {
+    entries.forEach(function (entry) {
+      var sec = entry.target.closest("details.node-section");
+      if (!sec) return;
+      if (entry.isIntersecting) {
+        if (active && active !== sec) active.classList.remove("section-in-view");
+        active = sec;
+        sec.classList.add("section-in-view");
+      } else if (active === sec) {
+        sec.classList.remove("section-in-view");
+        active = null;
+      }
+    });
+  }, { root: app, threshold: 0.15 });
+  app.querySelectorAll("details.node-section[open] > summary").forEach(function (s) {
+    sectionObserver.observe(s);
+  });
+  sectionObserverRefresh = function () {
+    if (!sectionObserver) return;
+    app.querySelectorAll("details.node-section[open] > summary").forEach(function (s) {
+      sectionObserver.observe(s);
+    });
+  };
+  app.addEventListener("toggle", sectionObserverRefresh, true);
+}
+
 function focusColumn(column) {
   var row = app.querySelector('tr[data-col="' + (window.CSS && CSS.escape ? CSS.escape(String(column).toLowerCase()) : String(column).toLowerCase()) + '"]');
   if (!row) return;
   row.scrollIntoView({ block: "center" });
-  // Move keyboard focus to the row so the deep link lands a keyboard user on the
-  // target, not stranded on the chip they followed. tabindex=-1 = programmatic
-  // focus only (not in the tab order).
   row.setAttribute("tabindex", "-1");
   row.focus({ preventScroll: true });
   row.classList.add("col-flash");
@@ -185,8 +183,6 @@ function contentFooter() {
   return foot;
 }
 
-/* Active nav tab key, persisted to localStorage. Valid values: "catalog" |
-   "semantic" | "other". */
 var _NAV_TAB_KEYS = { catalog: 1, semantic: 1, other: 1 };
 var _activeNavTab = "catalog";
 
@@ -201,7 +197,6 @@ function _saveNavTab(key) {
   try { localStorage.setItem("dbdocs-nav-tab", key); } catch (e) {}
 }
 
-/* Build the Catalog db→schema tree (panel for the Catalog tab). */
 function _buildCatalogPanel() {
   var wrap = el("div", { "data-tab-panel": "catalog" });
   var TREE = svc.tree();
@@ -228,8 +223,6 @@ function _buildCatalogPanel() {
   return wrap;
 }
 
-/* Build a typeless tab panel ("semantic"/"other"): one collapsible <details> per
-   non-empty resource type in the band. */
 function _buildTypelessPanel(tabKey) {
   var wrap = el("div", { "data-tab-panel": tabKey });
   var NODES = svc.nodes();
@@ -254,7 +247,6 @@ function _buildTypelessPanel(tabKey) {
   return wrap;
 }
 
-/* Render the sidebar body for the active tab (replaces the panel area). */
 function renderSidebarBody(tabKey) {
   var oldPanel = sidebar.querySelector(".nav-tab-panel");
   var panel = el("div", {
@@ -338,9 +330,6 @@ function activateNavTab(key) {
   if (filterEl) filterNav(filterEl.value);
 }
 
-/* Filter the visible sidebar panel. Catalog: hides db/schema sections with no
-   matching items. Typeless panels (Semantic/Other): hide non-matching items inside
-   each sub-section and collapse empty sub-sections. */
 function filterNav(query) {
   var q = String(query || "").trim().toLowerCase();
   var panel = sidebar.querySelector(".nav-tab-panel");
@@ -465,10 +454,6 @@ function renderOverview(erdFocus, erdSchema) {
   if (README) app.appendChild(renderReadme(README));
 }
 
-/* Status pills for a health summary. pass/warn/fail always show; error/skipped
-   only when non-zero (a clean run stays uncluttered); total comes last. Showing
-   skipped/error is what makes the band reconcile — otherwise e.g. 16 pass + 1
-   fail wouldn't visibly add up to "29 total" when 12 are skipped. */
 function healthPills(summary, extraClass) {
   var pills = [
     el("span", { class: "health-pill pass" }, [String(summary.pass || 0) + " pass"]),
@@ -481,7 +466,6 @@ function healthPills(summary, extraClass) {
   return el("div", { class: "health-pills" + (extraClass ? " " + extraClass : "") }, pills);
 }
 
-/* Human labels + descriptions for the six dimensions (testing first). */
 var HEALTH_DIM_LABELS = {
   testing: "Testing",
   documentation: "Documentation",
@@ -499,21 +483,17 @@ var HEALTH_DIM_DESC = {
   governance: "Contracts and model access",
 };
 
-/* Title-case any underscored key for display — a dimension, category, or rule
-   name (business_logic → "Business logic", model_fanout → "Model fanout"). */
 function healthLabel(cat) {
   var words = String(cat).replace(/_/g, " ");
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-/* score → a rating class for color (good / warn / bad). */
 function healthScoreClass(score) {
   if (score >= 90) return "good";
   if (score >= 70) return "warn";
   return "bad";
 }
 
-/* The compact overview card: headline issue count + a mini scorecard linking in. */
 function healthSummaryCard() {
   var total = svc.healthTotalIssues();
   var dims = svc.healthDimensions();
@@ -529,10 +509,6 @@ function healthSummaryCard() {
   return section;
 }
 
-/* The scorecard: one card per dimension with its score% + issue count. Each card
-   deep-links to its dimension's section via "#/health?d=<key>" — on the overview
-   that navigates to the Health page; on the Health page it re-routes and scrolls
-   to (and opens) the section. *dims* may be passed to avoid recomputing the list. */
 function healthScorecard(dims) {
   var cards = (dims || svc.healthDimensions()).map(function (d) {
     var label = HEALTH_DIM_LABELS[d.key] || healthLabel(d.key);
@@ -550,9 +526,6 @@ function healthScorecard(dims) {
   return el("div", { class: "health-scorecard" }, cards);
 }
 
-/* Health Check page — scorecard + one collapsible section per dimension. When
-   *focusDim* is set (deep-linked from a scorecard chip) that section is forced
-   open and scrolled into view. */
 function renderHealth(focusDim) {
   clear(app);
   var header = el("div", { class: "page-head" }, [
@@ -575,9 +548,6 @@ function renderHealth(focusDim) {
     app.appendChild(healthDimensionSection(d, focusDim));
   });
 
-  // Scroll the deep-linked section into view (after layout settles) and move
-  // keyboard focus to its <summary> — the operable part of the <details> — so a
-  // keyboard user lands on the section, not on the scorecard chip they followed.
   if (focusDim) {
     var target = document.getElementById("health-" + focusDim);
     if (target) setTimeout(function () {
@@ -588,8 +558,6 @@ function renderHealth(focusDim) {
   }
 }
 
-/* One collapsible dimension: a native <details> (open when it has issues, or when
-   it's the deep-linked *focusDim*) whose findings are grouped by rule. */
 function healthDimensionSection(d, focusDim) {
   var label = HEALTH_DIM_LABELS[d.key] || healthLabel(d.key);
   var summary = el("summary", { class: "health-section-head" }, [
@@ -610,13 +578,11 @@ function healthDimensionSection(d, focusDim) {
     });
   }
 
-  // Open by default when there's something to act on, or when deep-linked.
   var attrs = { class: "health-section", id: "health-" + d.key };
   if (d.issues > 0 || d.key === focusDim) attrs.open = "";
   return el("details", attrs, [summary, body]);
 }
 
-/* A rule's findings as a small table: the rule name + its flagged nodes. */
 function healthRuleBlock(rule, items) {
   var rows = items.map(function (f) {
     return el("tr", {}, [
@@ -638,7 +604,6 @@ function healthRuleBlock(rule, items) {
   ]);
 }
 
-/* A finding's node as a deep-link to its node page when resolvable, else code. */
 function healthNodeCell(nodeId) {
   var short = svc.shortName(nodeId);
   if (svc.nodeOrNull(nodeId)) {
@@ -648,8 +613,6 @@ function healthNodeCell(nodeId) {
 }
 
 
-/* A data-test table: test type, tested column, status, failures, details
-   (description + test_metadata.kwargs chips), and the run_results message. */
 function dataTestTable(tests) {
   var rows = tests.map(function (f) {
     return el("tr", {}, [
@@ -667,9 +630,6 @@ function dataTestTable(tests) {
   ]);
 }
 
-/* The "Details" cell for a data test: the manifest description (when present)
-   plus a chip per kwarg from test_metadata (e.g. accepted_values: ["a","b"],
-   expression: "x > 0"). Returns the muted em-dash when both are empty. */
 function testDetailsCell(f) {
   var hasDesc = f.description && String(f.description).trim();
   var kwargs = f.kwargs || {};
@@ -690,7 +650,6 @@ function testDetailsCell(f) {
   return el("div", { class: "test-details" }, children);
 }
 
-/* A unit-test table: the unit test name, status, message (no column concept). */
 function unitTestTable(tests) {
   var rows = tests.map(function (f) {
     return el("tr", {}, [
@@ -715,8 +674,6 @@ function statusBadge(status) {
   return el("span", { class: cls }, [status]);
 }
 
-/* Group a list of objects by a string key, preserving first-seen order.
-   Returns [{key, items}]. */
 function groupBy(items, prop) {
   var order = [];
   var map = {};
@@ -736,9 +693,6 @@ function renderReadme(md) {
   } catch (e) {
     body.appendChild(el("pre", { class: "code" }, [md]));
   }
-  // README paths are relative to the repo, not the docs site. Rewrite relative
-  // image/link URLs to absolute GitHub URLs (raw for images, blob for links)
-  // so they don't 404, and open external links in a new tab.
   body.querySelectorAll("img[src]").forEach(function (img) {
     img.src = svc.repoUrl(img.getAttribute("src"), "raw") || img.src;
   });
@@ -829,8 +783,6 @@ function _depSection(label, items, nodeId, sectionId) {
   });
 }
 
-/* Append the "Depends on" / "Referenced by" sections for a node, derived from
-   the lineage graph; each is appended only when it has items. */
 function _appendDepsSections(n) {
   var upSec = _depSection("Depends on", svc.dependsOn(n.id), n.id, "depends-on");
   if (upSec) app.appendChild(upSec);
@@ -855,11 +807,6 @@ function nodePageHeader(n) {
     : el("p", { class: "description muted" }, ["No description provided."]));
 }
 
-/* ── Section-state persistence ───────────────────────────────────────────────
-   localStorage key: "dbdocs-node-sections"
-   Shape: { nodeId: { sectionId: bool(open) }, _order: [nodeId, …] }
-   Capped at SECTION_STATE_CAP most-recently-touched node ids (LRU by insertion
-   order via _order array). */
 var SECTION_STATE_CAP = 100;
 var _SECTION_LS_KEY = "dbdocs-node-sections";
 
@@ -900,17 +847,6 @@ function _setSectionOpen(nodeId, sectionId, open) {
   _saveSectionState(state);
 }
 
-/* ── nodeSection: the shared <details> block for every section on a node page ──
-   opts: { id, title, count, defaultOpen, actions, body }
-   - id: stable suffix used for <details id="node-sec-{id}"> and deep-linking
-   - title: section heading text (h3-weight visually, inside <summary>)
-   - count: optional number badge shown after the title (e.g. "7 columns")
-   - defaultOpen: whether the section starts open when no stored state exists
-   - actions: optional Element or array of Elements placed at the right of the
-     summary (e.g. Full-screen button). Clicks on actions stop propagation so
-     they don't toggle the details.
-   - body: Element or array of Elements placed in the section body div
-   - nodeId: the node's unique_id used for per-section state persistence */
 function nodeSection(opts) {
   var nodeId = opts.nodeId || "";
   var sectionId = opts.id || "";
@@ -946,10 +882,6 @@ function nodeSection(opts) {
   return details;
 }
 
-/* "Expand all / Collapse all" button for the node page header. When any section
-   is closed it reads "Expand all"; when all are open it reads "Collapse all".
-   Toggling opens or closes every .node-section on the page; the label is the
-   button's own accessible name (each <details> exposes its own open state to AT). */
 function expandCollapseBtn() {
   var btn = el("button", { class: "fs-btn expand-collapse-btn", type: "button" });
   function refresh() {
@@ -1250,10 +1182,6 @@ function renderSavedQueryNode(n) {
   _appendDepsSections(n);
 }
 
-/* Render a unit-test fixture as its actual data: a column→value table for
-   dict/csv fixtures, a SQL code block for sql fixtures, or an empty-state note.
-   The table is wrapped so wide fixtures scroll horizontally; when more rows than
-   shown exist (capped server-side), a "showing N of M" note is appended. */
 function fixtureBody(columns, data, sql, total) {
   if (sql) return el("pre", { class: "code" }, [sql]);
   if (!data || !data.length) return el("p", { class: "muted" }, ["No rows provided."]);
@@ -1328,8 +1256,6 @@ function upstreamChips(upstream) {
   var NODES = svc.nodes();
   return upstream.map(function (u) {
     var label = NODES[u.node] ? NODES[u.node].label : svc.shortName(u.node);
-    // Link the column (the lineage target the user cares about); the model
-    // name is plain context. The href still deep-links to the upstream node.
     return el("span", { class: "up-chip" }, [
       el("span", { class: "up-model" }, [label + "."]),
       el("a", {
@@ -1345,8 +1271,6 @@ function downstreamChips(downstream) {
   var NODES = svc.nodes();
   return downstream.map(function (u) {
     var label = NODES[u.node] ? NODES[u.node].label : svc.shortName(u.node);
-    // Deep-link to the dependent (downstream) node's column so the user can
-    // follow the impact chain forward. The model name is plain context.
     return el("span", { class: "up-chip" }, [
       el("span", { class: "up-model" }, [label + "."]),
       el("a", {
@@ -1401,40 +1325,25 @@ function toggleFullscreen(host) {
   }
 }
 
-var SEARCH_RESULT_CAP = 12;
-
 function buildSearch() {
   var input = document.getElementById("search");
   var results = document.getElementById("search-results");
   var status = document.getElementById("search-status");
   if (typeof MiniSearch === "undefined") return;
-  var docs = svc.searchDocs();
-  var mini = new MiniSearch({
-    fields: svc.SEARCH_FIELDS.map(function (f) { return f.key; }),
-    storeFields: ["label", "resource_type", "schema"],
-    // Names/columns/tags expand fuzzily + by prefix so a half-typed model name
-    // still hits. The bulk text fields (description, column docs, SQL) match only
-    // on whole terms and at a low weight — otherwise a generic SQL keyword like
-    // "unique" fuzzy-floods nearly every model. boost ranks name/column hits well
-    // above an incidental SQL-body hit so the title results stay on top.
-    searchOptions: {
-      prefix: true,
-      fuzzy: 0.2,
-      boost: { label: 6, name: 6, columns: 3, tags: 2, relation: 2, description: 1, columnDescriptions: 1, code: 0.4 },
-    },
-  });
-  mini.addAll(docs);
+  ensureSearchIndex();
 
-  // Build the matched-field snippet (mkdocs-material style): a label for the
-  // field that matched + the excerpt, with the matched terms wrapped in <mark>.
-  // Highlighting is done by splitting on the matched terms and building text +
-  // <mark> nodes (no innerHTML) so user-derived text can never inject markup.
+  var isMac = isMacPlatform();
+  var hintWrap = el("div", { class: "cmd-hint", "aria-hidden": "true" }, [
+    el("kbd", {}, [isMac ? "⌘" : "Ctrl"]),
+    el("kbd", {}, ["K"]),
+  ]);
+  input.parentNode.appendChild(hintWrap);
+
   function highlightNodes(text, terms) {
     var safe = (terms || []).map(function (t) { return String(t).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }).filter(Boolean);
     if (!safe.length) return [text];
     var re = new RegExp("(" + safe.join("|") + ")", "ig");
     return String(text).split(re).map(function (piece, i) {
-      // split() with a capturing group puts the matched delimiters at odd indices.
       return i % 2 === 1 ? el("mark", null, [piece]) : piece;
     });
   }
@@ -1448,8 +1357,6 @@ function buildSearch() {
     ]);
   }
 
-  // Roving active-descendant state for keyboard nav: index into the rendered
-  // option rows, or -1 for "input itself focused, nothing selected".
   var activeIndex = -1;
 
   function setExpanded(open) {
@@ -1464,9 +1371,6 @@ function buildSearch() {
 
   function optionRows() { return results.querySelectorAll('[role="option"]'); }
 
-  // Move the roving selection by `delta` (wrapping), reflect it as the .active
-  // class + aria-selected, and point the input's aria-activedescendant at it so
-  // a screen reader announces the row without moving DOM focus off the input.
   function moveActive(delta) {
     var rows = optionRows();
     if (!rows.length) return;
@@ -1484,8 +1388,6 @@ function buildSearch() {
     activeIndex = -1;
     input.removeAttribute("aria-activedescendant");
     if (!hits.length) {
-      // A non-empty query with no hits gets an explicit cue, mirrored into the
-      // #search-status live region for screen readers.
       var noMatches = "No matches.";
       results.appendChild(el("div", { class: "sr-empty" }, [noMatches]));
       status.textContent = noMatches;
@@ -1515,32 +1417,15 @@ function buildSearch() {
   }
 
   function closeSearch() { setExpanded(false); input.value = ""; setSearchOpen(false); }
-  // Map service's parsed operators to MiniSearch's field restriction + a
-  // resource_type filter. A bare `type:` (no free text) scans for the first
-  // SEARCH_RESULT_CAP nodes of that type — O(cap), not O(N) on a huge project.
-  function runQuery(raw) {
-    var p = svc.parseSearchQuery(raw);
-    if (!p.text) {
-      if (!p.filterType) return [];
-      var picked = [];
-      for (var i = 0; i < docs.length && picked.length < SEARCH_RESULT_CAP; i++) {
-        if (docs[i].resource_type === p.filterType) picked.push(docs[i]);
-      }
-      return picked;
-    }
-    var opts = {};
-    if (p.fields) opts.fields = p.fields;
-    if (p.filterType) opts.filter = function (h) { return h.resource_type === p.filterType; };
-    return mini.search(p.text, opts);
-  }
+
+  function runQuery(raw) { return runSearchQuery(raw); }
+
   input.addEventListener("input", function () {
     var q = input.value.trim();
     if (!q) { setExpanded(false); return; }
     render(runQuery(q));
   });
   input.addEventListener("focus", function () { if (input.value.trim()) render(runQuery(input.value.trim())); });
-  // Keyboard nav: ↑/↓ rove the options, Enter follows the active one (or the
-  // first when none is roved), Escape closes. Other keys fall through to typing.
   input.addEventListener("keydown", function (e) {
     if (results.hidden) return;
     if (e.key === "ArrowDown") { e.preventDefault(); moveActive(1); }
@@ -1560,14 +1445,14 @@ function initTheme() {
   if (saved) document.documentElement.setAttribute("data-theme", saved);
   document.getElementById("theme-toggle").addEventListener("click", function () {
     var cur = document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark";
+    document.documentElement.classList.add("theme-transition");
     document.documentElement.setAttribute("data-theme", cur);
     try { localStorage.setItem("dbdocs-theme", cur); } catch (e) { /* ignore */ }
+    setTimeout(function () { document.documentElement.classList.remove("theme-transition"); }, 300);
     route();
   });
 }
 
-/* The version directory the site is served from, e.g. ".../latest/index.html"
-   → "latest". Drops a trailing file segment (index.html) when present. */
 function currentVersionDir() {
   var parts = location.pathname.split("/").filter(Boolean);
   if (parts.length && /\.[a-z]+$/i.test(parts[parts.length - 1])) parts.pop();
@@ -1591,7 +1476,7 @@ function initVersions() {
 }
 
 function maybeWarnNotLatest(versions, current) {
-  var latest = versions[0]; // versions.json is sorted newest-first
+  var latest = versions[0];
   if (!latest) return;
   var isLatest = current === latest.version || (latest.aliases || []).indexOf(current) >= 0;
   var defaultAlias = (svc.meta().default_version || "latest");
@@ -1605,9 +1490,6 @@ function maybeWarnNotLatest(versions, current) {
   document.body.insertBefore(banner, document.body.firstChild);
 }
 
-/* Off-canvas sidebar drawer for narrow screens: the hamburger toggles
-   body.nav-open; the overlay and any navigation close it. On wide screens the
-   sidebar is always visible (CSS), so toggling the class is harmless there. */
 function setNavOpen(open) {
   document.body.classList.toggle("nav-open", open);
   var overlay = document.getElementById("nav-overlay");
@@ -1616,9 +1498,6 @@ function setNavOpen(open) {
   if (toggle) toggle.setAttribute("aria-expanded", open ? "true" : "false");
 }
 
-/* Desktop hide/unhide of the left pane (body.nav-collapsed): the « button in the
-   sidebar header collapses the column; a » rail on the content edge re-opens it.
-   Separate from the mobile drawer (nav-open). */
 function setNavCollapsed(collapsed) {
   document.body.classList.toggle("nav-collapsed", collapsed);
   var btn = document.getElementById("nav-collapse");
@@ -1632,7 +1511,6 @@ function initNav() {
     setNavOpen(!document.body.classList.contains("nav-open"));
   });
   if (overlay) overlay.addEventListener("click", function () { setNavOpen(false); });
-  // Navigating from the sidebar closes the drawer.
   if (sidebar) sidebar.addEventListener("click", function (e) {
     if (e.target.closest("a")) setNavOpen(false);
   });
@@ -1643,9 +1521,6 @@ function initNav() {
   if (reopen) reopen.addEventListener("click", function () { setNavCollapsed(false); });
 }
 
-/* Mobile search toggle: the topbar's 🔍 reveals the search row (CSS shows it
-   when body.search-open is set); opening focuses the input. On wide screens the
-   search is always visible, so this just no-ops. */
 function setSearchOpen(open) {
   document.body.classList.toggle("search-open", open);
   var toggle = document.getElementById("search-toggle");
@@ -1663,8 +1538,6 @@ function initSearchToggle() {
   });
 }
 
-/* Apply a custom logo/favicon when the build injected deployed URLs for them;
-   otherwise the bundled defaults in index.html stay untouched. */
 function initBranding() {
   var META = svc.meta();
   if (META.logo) {
@@ -1675,8 +1548,6 @@ function initBranding() {
     var link = document.querySelector('link[rel="icon"]');
     if (link) {
       link.setAttribute("href", META.favicon);
-      // The bundled default is an SVG; a custom favicon may be any image type,
-      // so drop the hardcoded type and let the browser sniff it.
       link.removeAttribute("type");
     }
   }
@@ -1710,9 +1581,6 @@ function initFooter() {
   }
 }
 
-/* Wire the whole shell: cache DOM refs, set chrome from metadata, build nav +
-   search, init theme/versions, and route. Called by the entry once data is
-   loaded into the service tier. */
 export function boot() {
   app = document.getElementById("app");
   sidebar = document.getElementById("sidebar");
@@ -1733,6 +1601,7 @@ export function boot() {
   initTheme();
   buildNav();
   buildSearch();
+  initCommandPalette();
   initVersions();
   window.addEventListener("hashchange", route);
   route();

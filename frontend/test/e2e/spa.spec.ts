@@ -449,17 +449,16 @@ test.describe("deep-link URL state (B1 + B2)", () => {
     }
   });
 
-  test("copy-link button exists on node page and flips label on click", async ({ page, context }) => {
+  test("copy-link button exists on node page and toasts on click", async ({ page, context }) => {
     await context.grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.goto("index.html#/node/model.jaffle_shop.orders");
     const btn = page.locator(".copy-link-btn").first();
     await expect(btn).toBeVisible();
     await expect(btn).toContainText("Copy link");
+    const toast = page.locator("#toast-region .toast");
     await btn.click();
-    await expect(btn).toContainText("Copied!");
-    await expect(btn).toHaveClass(/copied/);
-    await expect(btn).toContainText("Copy link", { timeout: 3000 });
-    await expect(btn).not.toHaveClass(/copied/);
+    await expect(toast).toHaveText("Link copied!");
+    await expect(toast).toHaveCount(0, { timeout: 4000 });
   });
 
   test("copy-link button exists on DAG page", async ({ page }) => {
@@ -675,7 +674,7 @@ test.describe("overview ERD — toolbar, focus, full-screen", () => {
     await expect(fsBtn).toContainText("Full screen");
   });
 
-  test("every node-page section has a copy-link button that flips .copied on click", async ({
+  test("every node-page section has a copy-link button that toasts on click", async ({
     page,
     context,
   }) => {
@@ -685,9 +684,10 @@ test.describe("overview ERD — toolbar, focus, full-screen", () => {
     await expect(detailsSection).toBeVisible();
     const linkBtn = detailsSection.locator(".node-section-summary-actions .section-link-btn");
     await expect(linkBtn).toHaveAttribute("aria-label", "Copy link to this section");
+    const toast = page.locator("#toast-region .toast");
     await linkBtn.click();
-    await expect(linkBtn).toHaveClass(/copied/);
-    await expect(linkBtn).not.toHaveClass(/copied/, { timeout: 3000 });
+    await expect(toast).toHaveText("Section link copied!");
+    await expect(toast).toHaveCount(0, { timeout: 4000 });
   });
 
   test("model-page Related ERD renders full columns (not the compact +N more)", async ({ page }) => {

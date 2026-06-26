@@ -139,7 +139,7 @@ payload = json.dumps(
 
 - `dbdocs/site/builder.py` — `class ReportBuilder`, `def build_data`, `def generate`
 - `dbdocs/site/inject.py` — `INJECT_MARKER`, `def strip_marker`
-- SPA loader — `dbdocs/site/bundle/assets/js/data.js` (`loadData`)
+- SPA loader — `dbdocs/site/bundle/assets/js/data/data.js` (`loadData`)
 
 ## SPA 3-tier ES modules (data → service → ui)
 
@@ -148,13 +148,28 @@ payload = json.dumps(
 The bundled shell SPA (vanilla JS, no build step) is split into native ES modules
 under `dbdocs/site/bundle/assets/js/`, with a strict one-way dependency
 `ui → service → data` (mirroring the Python `core → extract → site` flow):
-`data.js` loads + normalizes the payload, `service.js` is pure domain logic over
-the data dict (zero DOM), `ui.js` is all DOM rendering, and `app.js` is the thin
-entry that wires the three. `index.html` loads the entry as `<script
-type="module" src="assets/js/app.js">`. The vendored UMD libs (`assets/vendor/`,
-e.g. minisearch/marked) and the React Flow graph bundle (`assets/graph/`) stay
-classic scripts setting globals (`MiniSearch`, `marked`, `window.dbdocsGraph`)
-that the modules read directly — and `data.js` re-exposes the fetched payload on
+the data tier loads + normalizes the payload, the service tier is pure domain
+logic over the data dict (zero DOM), the ui tier is all DOM rendering, and
+`app.js` is the thin entry that wires the three. **Each tier lives in its own
+folder** under `assets/js/` — `data/`, `service/`, `ui/` — so the tier boundary is
+a directory boundary even when a tier is a single file; only the entry (`app.js`)
+sits loose at the `assets/js/` root:
+
+- `data/data.js` — loads + normalizes the payload, re-exposes it on `window.dbdocsData`.
+- `service/service.js` — DOM-free domain logic over the data dict.
+- `ui/ui.js` (the renderer), `ui/dom.js` (shared DOM primitives:
+  `el`/`clear`/`icon`/`KNOWN_ICONS`), `ui/overlays.js` (command palette + toasts +
+  the shared MiniSearch index).
+
+Cross-tier imports cross a folder: `app.js` imports `./data/data.js`,
+`./service/service.js`, `./ui/ui.js`; the ui-folder files import service as
+`../service/service.js` and each other as `./`. Within a tier, add new modules to
+that tier's folder (e.g. a new ui module imports its siblings with `./`), not a new
+top-level file. `index.html` loads the entry as `<script type="module"
+src="assets/js/app.js">`. The vendored UMD libs (`assets/vendor/`, e.g.
+minisearch/marked) and the React Flow graph bundle (`assets/graph/`) stay classic
+scripts setting globals (`MiniSearch`, `marked`, `window.dbdocsGraph`) that the
+modules read directly — and `data/data.js` re-exposes the fetched payload on
 `window.dbdocsData` so the graph bundle (a separate app) can read it. Keep the
 service tier DOM-free and the ui tier the only DOM toucher; no bundler for the
 shell. CSS lives under `assets/css/`; only `favicon.svg` sits loose in `assets/`.
@@ -163,9 +178,9 @@ shell. CSS lives under `assets/css/`; only `favicon.svg` sits loose in `assets/`
 
 ```javascript
 // dbdocs/site/bundle/assets/js/app.js — the entry wires the three tiers
-import { loadData } from "./data.js";
-import * as svc from "./service.js";
-import { boot } from "./ui.js";
+import { loadData } from "./data/data.js";
+import * as svc from "./service/service.js";
+import { boot } from "./ui/ui.js";
 
 loadData().then(function (data) {
   svc.init(data);
@@ -173,7 +188,10 @@ loadData().then(function (data) {
 });
 ```
 
-- `dbdocs/site/bundle/assets/js/` — `data.js`, `service.js`, `ui.js`, `app.js`
+- `dbdocs/site/bundle/assets/js/app.js` — the entry (loose at root)
+- `dbdocs/site/bundle/assets/js/data/` — `data.js` (data tier)
+- `dbdocs/site/bundle/assets/js/service/` — `service.js` (service tier)
+- `dbdocs/site/bundle/assets/js/ui/` — `ui.js`, `dom.js`, `overlays.js` (ui tier)
 - `dbdocs/site/bundle/index.html` — `<script type="module">` entry
 
 ## Config object from dbdocs.yml
@@ -220,8 +238,8 @@ def _resolve_within_cwd(value: str, field_name: str) -> Path:
 - `dbdocs/site/builder.py` — `def _stage_branding`, `def _copy_branding_asset`
 - `dbdocs/core/exceptions.py` — `DbDocsConfigError`, `LineageError`, `DeployError`
 - `dbdocs/core/config.py` — `show_about` / `about_links` (display-metadata fields, *not* in `_NON_METADATA_FIELDS`, so they flow through `render_context()` → `metadata`); the distinction is the point — build-control fields are stripped, display-metadata like these is kept
-- `dbdocs/site/bundle/assets/js/service.js` — `aboutLinks` (DOM-free accessor, guards `Array.isArray`)
-- `dbdocs/site/bundle/assets/js/ui.js` — `renderAbout` (the `#/about` page: JSON API section + CTA links), `initFooter` (pinned About link gated by `show_about !== false`), route branch `r.view === "about"`
+- `dbdocs/site/bundle/assets/js/service/service.js` — `aboutLinks` (DOM-free accessor, guards `Array.isArray`)
+- `dbdocs/site/bundle/assets/js/ui/ui.js` — `renderAbout` (the `#/about` page: JSON API section + CTA links), `initFooter` (pinned About link gated by `show_about !== false`), route branch `r.view === "about"`
 
 ## Centralized artifact loading + the schema\_ gotcha
 
@@ -547,7 +565,7 @@ if (ids.length > MAX_UNFOCUSED_DAG_NODES) return new Set<string>();
 - `frontend/src/lib/data.ts` — `CATALOG_RTYPES`, `SEMANTIC_RTYPES`, `OTHER_RTYPES`, `layerTypes`, `buildDagFlow`
 - `frontend/src/components/GraphApp.tsx` — `LayerControl` (4 bands), `RtypeDropdown`, `CATALOG_ORDER`/`SEMANTIC_ORDER`/`OTHER_ORDER`, `dagKeep`, `hasFilter`, `dagFilterEmpty`/`dagTooLarge`, `buildDagHash`, `MAX_UNFOCUSED_DAG_NODES`
 - `frontend/src/main.tsx` — `parseLayer`, `data-layer` dataset → `initialLayer`
-- `dbdocs/site/bundle/assets/js/service.js` — `_SEMANTIC_TYPES`/`_OTHER_TYPES`/`_CATALOG_RTYPES`, `resourceTabs`, `navSections`, `tabForRtype` (the sidebar mirror)
+- `dbdocs/site/bundle/assets/js/service/service.js` — `_SEMANTIC_TYPES`/`_OTHER_TYPES`/`_CATALOG_RTYPES`, `resourceTabs`, `navSections`, `tabForRtype` (the sidebar mirror)
 - `frontend/test/unit/layerTypes.test.ts`, `frontend/test/unit/RtypeDropdown.test.tsx`
 
 ## ERD from dbterd's built-in json target
@@ -848,9 +866,9 @@ fixture does this).
 - `docs/dbdocs-demo.yml` — the documented `health:` block (all thresholds + every rule name under `disable`) + default `run_results`
 - `tests/fixtures/jaffle_shop/run_results.json` — sanitized plain-dbt run (29 tests) whose ids match the committed manifest (co-located with the artifacts so the default `<target_dir>/run_results.json` resolves)
 - `dbdocs/site/builder.py` — `def _resolve_run_results_path`, `def build_data` (health key, `config=config.health`)
-- `dbdocs/site/bundle/assets/js/data.js` — `normalize()` health default (`dimensions`/`testResults`/`note`)
-- `dbdocs/site/bundle/assets/js/service.js` — `healthDimensions`, `healthEnabled` (issues>0), `healthTotalIssues`, `testResultsForNode` (data/unit split)
-- `dbdocs/site/bundle/assets/js/ui.js` — `renderHealth`, `healthScorecard`, `healthDimensionSection`, `_testsSection` (model-page Tests node-section)
+- `dbdocs/site/bundle/assets/js/data/data.js` — `normalize()` health default (`dimensions`/`testResults`/`note`)
+- `dbdocs/site/bundle/assets/js/service/service.js` — `healthDimensions`, `healthEnabled` (issues>0), `healthTotalIssues`, `testResultsForNode` (data/unit split)
+- `dbdocs/site/bundle/assets/js/ui/ui.js` — `renderHealth`, `healthScorecard`, `healthDimensionSection`, `_testsSection` (model-page Tests node-section)
 
 ## Node detail fields + client-derived dependency lists
 
@@ -894,7 +912,7 @@ def _catalog_stats(catalog_node: Any) -> dict:
 ```
 
 ```javascript
-// dbdocs/site/bundle/assets/js/service.js — derive deps from lineage, zero payload growth
+// dbdocs/site/bundle/assets/js/service/service.js — derive deps from lineage, zero payload growth
 export function dependsOn(id) {
   return resolveDeps((DATA.lineage.parents || {})[id]);
 }
@@ -904,8 +922,8 @@ export function referencedBy(id) {
 ```
 
 - `dbdocs/extract/nodes.py` — `_catalog_stats`, `_owner_string`, `_node_record` (all new detail fields)
-- `dbdocs/site/bundle/assets/js/service.js` — `dependsOn`, `referencedBy`, `resolveDeps` (public — `ui.js` reads it cross-module)
-- `dbdocs/site/bundle/assets/js/ui.js` — `nodeDetailsBlock`, `depChipList`, `_depSection` (wraps deps in nodeSection)
+- `dbdocs/site/bundle/assets/js/service/service.js` — `dependsOn`, `referencedBy`, `resolveDeps` (public — `ui.js` reads it cross-module)
+- `dbdocs/site/bundle/assets/js/ui/ui.js` — `nodeDetailsBlock`, `depChipList`, `_depSection` (wraps deps in nodeSection)
 - `dbdocs/site/bundle/assets/css/style.css` — `.node-details`, `.dep-chips`, `.dep-chip`
 
 ## Static REST /api/v1 surface
@@ -1163,8 +1181,8 @@ function highlightNav(r) {
 - `dbdocs/core/artifacts.py` — `CODE_ONLY_PREFIXES`, `COLLECTION_ATTRS` (public; both modules import from here)
 - `dbdocs/extract/nodes.py` — `_PHYSICAL_PREFIXES`, `_COLLECTION_PREFIXES`, `_base_envelope`, `_metric_record`, `_metric_type_params`, `_semantic_model_record`, `_sm_items`, `_saved_query_record`, `_export_item`, `_fixture_rows` (unit-test given/expect data table, capped at `_FIXTURE_ROW_CAP` with the uncapped `total` kept), `_FIXTURE_ROW_CAP`, `_unit_test_given_item`, `_unit_test_record`, `_exposure_record`, `build_nodes` (extended), `build_tree` (physical-only)
 - `dbdocs/extract/graph.py` — `_default_node_ids` (extended), `_lookup` (extended)
-- `dbdocs/site/bundle/assets/js/service.js` — `RTYPE_ORDER` (extended), `_SEMANTIC_TYPES`/`_OTHER_TYPES`/`_TAB_TYPES`/`_CATALOG_RTYPES`, `resourceTabs`, `navSections`, `tabForRtype`, `isCatalogNode`, `metricPayload`, `semanticModelPayload`, `savedQueryPayload`, `unitTestPayload`, `exposurePayload`
-- `dbdocs/site/bundle/assets/js/ui.js` — `buildNav` (3-tab strip), `_NAV_TAB_KEYS`, `activateNavTab`, `renderSidebarBody`, `_buildTypelessPanel`, `filterNav`, `highlightNav` (auto-switch via `tabForRtype` + force-open sub-section), `renderNode` (dispatch), `renderPhysicalNode`, `renderCodeOnlyNode`, `renderMetricNode`, `renderSemanticModelNode`, `renderSavedQueryNode`, `renderUnitTestNode` (given/expect data tables via `fixtureBody`), `renderExposureNode`
+- `dbdocs/site/bundle/assets/js/service/service.js` — `RTYPE_ORDER` (extended), `_SEMANTIC_TYPES`/`_OTHER_TYPES`/`_TAB_TYPES`/`_CATALOG_RTYPES`, `resourceTabs`, `navSections`, `tabForRtype`, `isCatalogNode`, `metricPayload`, `semanticModelPayload`, `savedQueryPayload`, `unitTestPayload`, `exposurePayload`
+- `dbdocs/site/bundle/assets/js/ui/ui.js` — `buildNav` (3-tab strip), `_NAV_TAB_KEYS`, `activateNavTab`, `renderSidebarBody`, `_buildTypelessPanel`, `filterNav`, `highlightNav` (auto-switch via `tabForRtype` + force-open sub-section), `renderNode` (dispatch), `renderPhysicalNode`, `renderCodeOnlyNode`, `renderMetricNode`, `renderSemanticModelNode`, `renderSavedQueryNode`, `renderUnitTestNode` (given/expect data tables via `fixtureBody`), `renderExposureNode`
 - `tests/conftest.py` — `metric_entity`, `semantic_model_entity`, `saved_query_entity`, `unit_test_entity`, `exposure_entity`
 
 ## Semantic-layer enum + object cleanup and client-side cross-linking
@@ -1261,7 +1279,7 @@ raw_export_as = getattr(config, "export_as", None)
 ```
 
 ```javascript
-// dbdocs/site/bundle/assets/js/service.js — cross-link resolution, DOM-free
+// dbdocs/site/bundle/assets/js/service/service.js — cross-link resolution, DOM-free
 export function metricByName(name) { /* scan nodes, return {id, label} or null */ }
 export function semanticModelForMeasure(measureName) { /* scan semantic_models for measure name */ }
 export function metricsForSemanticModel(nodeId) {
@@ -1275,8 +1293,8 @@ export function metricsForSemanticModel(nodeId) {
 ```
 
 - `dbdocs/extract/nodes.py` — `_enum_value`, `_object_name`, `_ENTITY_REPR` (literal-repr fallback), `_metric_type_params` (`input_measures` added), `_sm_items` (uses `_enum_value`), `_export_item` (`schema_name`, enum `export_as`), `_exposure_record` (enum `type`/`maturity`)
-- `dbdocs/site/bundle/assets/js/service.js` — `metricByName`, `semanticModelForMeasure`, `metricsForSemanticModel`
-- `dbdocs/site/bundle/assets/js/ui.js` — `metricNameLink`, `measureNameLink`, `renderMetricNode` (linked type_params), `renderSemanticModelNode` ("Metrics built on this model"), `renderSavedQueryNode` (metric deep links)
+- `dbdocs/site/bundle/assets/js/service/service.js` — `metricByName`, `semanticModelForMeasure`, `metricsForSemanticModel`
+- `dbdocs/site/bundle/assets/js/ui/ui.js` — `metricNameLink`, `measureNameLink`, `renderMetricNode` (linked type_params), `renderSemanticModelNode` ("Metrics built on this model"), `renderSavedQueryNode` (metric deep links)
 - `tests/unit/extract/test_nodes.py` — `_fake_enum`, `_fake_measure`, `test_enum_value_*`, `test_object_name_*`, `test_metric_type_is_unwrapped_from_enum`, `test_metric_type_params_*_object*`, `test_sm_items_enum_*`, `test_export_item_*`, `test_exposure_record_enum_*`
 
 ## Collapsible node-page sections (`nodeSection`)
@@ -1292,11 +1310,12 @@ Every section on every node page is a native `<details class="node-section">` bl
 - **Deep-link `?sec=<suffix>`** — `route()` calls `focusSection(sec)` which forces `node-sec-{sec}` open and scrolls it into view after layout. `?col=` deep-links also force `node-sec-columns` open via `_forceNodeSectionOpen`.
 - **Lazy ERD mount** — the Related ERD section starts default-closed; its `<details>` `toggle` listener mounts the React Flow bundle the first open and reuses the host thereafter. Navigation away cleans up via the existing `unmountGraph()` at the top of `route()`.
 - **Heavy sections default-closed** — Related ERD and Transformation logic start closed; all data-bearing sections (Details, Depends on, Referenced by, Columns, Tests) start open when non-empty.
+- **Scroll-spy active section** — on a node page, `_initSectionObserver()` wires an `IntersectionObserver` (rooted on `app`) over each open `details.node-section > summary`; the section currently in view carries `section-in-view`, which tints its summary with `--accent` (CSS `details.node-section.section-in-view > summary`). A capturing `toggle` listener (`sectionObserverRefresh`) re-observes summaries as sections open. Both the observer and that listener are torn down at the top of `route()` (alongside `expandCollapseRefresh`) so navigating between node pages never leaks observers or listeners on the persistent `app`. Guarded behind `window.IntersectionObserver` (no-op when absent).
 
 ### Example
 
 ```javascript
-// dbdocs/site/bundle/assets/js/ui.js — nodeSection factory; state persistence
+// dbdocs/site/bundle/assets/js/ui/ui.js — nodeSection factory; state persistence
 function nodeSection(opts) {
   var isOpen = _getSectionOpen(opts.nodeId, opts.id, !!opts.defaultOpen);
   var summary = el("summary", { class: "node-section-summary" }, [
@@ -1339,6 +1358,6 @@ The dependency sections (`depends-on` / `referenced-by`, via `_appendDepsSection
 
 All other renderer types follow the same open-if-non-empty / always-open-for-primary defaults; none have heavy ERD/SQL sections.
 
-- `dbdocs/site/bundle/assets/js/ui.js` — `nodeSection`, `sectionLinkButton`, `_getSectionOpen`, `_setSectionOpen`, `_loadSectionState`, `_saveSectionState`, `expandCollapseBtn`, `focusSection`, `_forceNodeSectionOpen`, `_depSection`, `_appendDepsSections`, `_physicalDetailsSection`, `_columnsSection`, `_testsSection`, `_erdSection`, `_sqlSection`, `renderPhysicalNode`, `renderCodeOnlyNode`, `renderMetricNode`, `renderSemanticModelNode`, `renderSavedQueryNode`, `renderUnitTestNode`, `renderExposureNode`
-- `dbdocs/site/bundle/assets/js/service.js` — `columnCount`, `macroCount`
-- `dbdocs/site/bundle/assets/css/style.css` — `details.node-section`, `.node-section-summary`, `.node-section-title`, `.node-section-count`, `.node-section-summary-actions`, `.section-link-btn`, `.node-section-body`, `.expand-collapse-btn`, `.erd-section-host`, `@media print`
+- `dbdocs/site/bundle/assets/js/ui/ui.js` — `nodeSection`, `sectionLinkButton`, `_getSectionOpen`, `_setSectionOpen`, `_loadSectionState`, `_saveSectionState`, `expandCollapseBtn`, `focusSection`, `_forceNodeSectionOpen`, `_initSectionObserver` (scroll-spy + `sectionObserverRefresh`), `_depSection`, `_appendDepsSections`, `_physicalDetailsSection`, `_columnsSection`, `_testsSection`, `_erdSection`, `_sqlSection`, `renderPhysicalNode`, `renderCodeOnlyNode`, `renderMetricNode`, `renderSemanticModelNode`, `renderSavedQueryNode`, `renderUnitTestNode`, `renderExposureNode`
+- `dbdocs/site/bundle/assets/js/service/service.js` — `columnCount`, `macroCount`
+- `dbdocs/site/bundle/assets/css/style.css` — `details.node-section`, `.node-section-summary`, `.node-section-title`, `.node-section-count`, `.node-section-summary-actions`, `.section-link-btn`, `.section-in-view`, `.node-section-body`, `.expand-collapse-btn`, `.erd-section-host`, `@media print`
