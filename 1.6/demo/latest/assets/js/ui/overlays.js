@@ -119,6 +119,8 @@ export function initCommandPalette() {
         location.hash = "#/overview";
       } else if (action === "dag") {
         location.hash = "#/dag";
+      } else if (action === "erd") {
+        location.hash = "#/erd";
       } else if (action === "health") {
         location.hash = "#/health";
       } else if (action === "about") {
@@ -152,11 +154,12 @@ export function initCommandPalette() {
     if (!q) {
       var actions = [
         { label: "Catalog overview", icon: "catalog", action: "overview" },
+        { label: "Entity-relationship diagram", icon: "schema", action: "erd" },
         { label: "Lineage / DAG", icon: "dag", action: "dag" },
         { label: "Toggle theme", icon: "info", action: "toggle-theme" },
       ];
       if (svc.healthEnabled()) {
-        actions.splice(2, 0, { label: "Health Check", icon: "health", action: "health" });
+        actions.splice(3, 0, { label: "Health Check", icon: "health", action: "health" });
       }
       if (svc.meta().show_about !== false) {
         actions.splice(actions.length, 0, { label: "About / JSON API", icon: "api", action: "about" });

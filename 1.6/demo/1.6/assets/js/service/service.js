@@ -21,6 +21,7 @@ export function node(id) { return DATA.nodes[id]; }
 export function tree() { return (DATA.tree && DATA.tree.byDatabase) || {}; }
 export function readme() { return DATA.readme || ""; }
 export function counts() { return DATA.metadata.counts || {}; }
+export function isVersioned() { return !!DATA.metadata.versioned; }
 
 export function shortName(id) { return String(id).split(".").pop(); }
 
