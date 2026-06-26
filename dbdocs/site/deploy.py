@@ -77,7 +77,7 @@ def deploy(
     if version_dir.exists():
         rmtree(version_dir)
 
-    ReportBuilder(config).generate(output_dir=str(version_dir))
+    ReportBuilder(config).generate(output_dir=str(version_dir), versioned=True)
 
     versions = _upsert_version(_read_versions(output_root), version, title or version, alias)
     (output_root / VERSIONS_FILE).write_text(json.dumps(versions, indent=2), encoding="utf-8")

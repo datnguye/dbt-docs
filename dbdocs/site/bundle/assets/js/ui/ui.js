@@ -97,6 +97,7 @@ export function route() {
   else if (r.view === "dag") renderDag(r.query.focus, r.query.rtype, r.query.schema, r.query.layer);
   else if (r.view === "health") renderHealth(r.query.d);
   else if (r.view === "about") renderAbout();
+  else if (r.view === "erd") { renderOverview(r.query.erd_focus, r.query.erd_schema); _scrollToErd(); }
   else renderOverview(r.query.erd_focus, r.query.erd_schema);
   if (r.view !== "dag") app.appendChild(contentFooter());
   highlightNav(r);
@@ -111,6 +112,15 @@ export function route() {
   }
   if (r.view === "node" && r.query.sec) focusSection(r.query.sec);
   if (r.view === "node") _initSectionObserver();
+}
+
+function _scrollToErd() {
+  setTimeout(function () {
+    var heading = document.getElementById("erd-heading");
+    if (!heading) return;
+    heading.scrollIntoView({ behavior: "smooth", block: "start" });
+    heading.focus({ preventScroll: true });
+  }, 0);
 }
 
 function _forceNodeSectionOpen(sectionId) {
@@ -444,7 +454,7 @@ function renderOverview(erdFocus, erdSchema) {
     onclick: function () { toggleFullscreen(erdHost); },
   }, [icon("fullscreen", 15), " Full screen"]);
   var erdHeader = el("div", { class: "page-head" }, [
-    el("h2", {}, ["Entity-relationship diagram"]),
+    el("h2", { id: "erd-heading", tabindex: "-1" }, ["Entity-relationship diagram"]),
     el("div", { class: "page-head-actions" }, [fsBtn]),
   ]);
   app.appendChild(erdHeader);
@@ -1460,6 +1470,7 @@ function currentVersionDir() {
 }
 
 function initVersions() {
+  if (!svc.isVersioned()) return;
   var sel = document.getElementById("version-switcher");
   fetch("../versions.json").then(function (r) { return r.ok ? r.json() : null; }).then(function (versions) {
     if (!versions || !versions.length) return;
@@ -1472,7 +1483,7 @@ function initVersions() {
     versions.forEach(function (v) { if (v.version === current || (v.aliases || []).indexOf(current) >= 0) sel.value = v.version; });
     sel.addEventListener("change", function () { location.href = "../" + sel.value + "/index.html"; });
     maybeWarnNotLatest(versions, current);
-  }).catch(function () { /* unversioned build: no switcher */ });
+  }).catch(function () { /* versions.json missing: hide the switcher */ });
 }
 
 function maybeWarnNotLatest(versions, current) {

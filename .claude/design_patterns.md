@@ -419,6 +419,27 @@ shows the `erd_algo` "no relationships detected" placeholder (`erdNoTables`),
 while a schema filter that matched nothing shows "clear the schema filter"
 (`erdFilterEmpty`) — don't collapse the two.
 
+**Focused DAG — top-down + tighter fit.** A focused DAG (`isDag && focusId`)
+overrides the default left-right dagre rank direction with `"TB"` (top-to-bottom)
+via the layout registry's `opts.direction` (the `dagre` engine forwards it to
+`rankdir`; the unfocused DAG and the ERD radial layout ignore it), and uses the
+tighter `DAG_FIT_FOCUSED` (`padding: 0.2`) for the initial / data-change /
+fullscreen fit instead of the full-graph default. Don't hardcode `rankdir` at the
+call site — thread it through `opts.direction` so the engine stays the single
+layout authority (see **Pluggable graph layout**).
+
+**`#/erd` jumps to the overview ERD.** The overview ERD lives on the
+`renderOverview` page, but `#/erd` is a first-class hash route that renders that
+page and then `_scrollToErd()`s the `#erd-heading` into view (and moves focus
+there, `preventScroll`, for keyboard/AT users) — scroll target by element id, not
+by matching the heading's English text. It carries the same `erd_focus`/
+`erd_schema` query params as the overview default branch, so an ERD deep link
+round-trips. Its producer is the command palette's "Entity-relationship diagram"
+quick action (`action: "erd"`) — there is deliberately **no pinned nav CTA** for
+it (the ERD lives on the overview page); `highlightNav` marks the **overview** nav
+item active. Don't add a route branch without a producer — an orphaned `#/…` view
+is dead UI.
+
 Graph-UI changes need a Node rebuild (`task frontend:build`) of the committed
 bundle.
 
@@ -442,7 +463,10 @@ const dagKeep = useMemo(() => {
 
 - `frontend/src/lib/data.ts` — `neighborhood`, `buildDagFlow`, `erdNeighborhood`, `buildErdFlow` (`compact`), `erdRowCount`
 - `frontend/src/components/nodes/ErdTableNode.tsx` — `visibleColumns` (compact key-column filter + "+N more")
-- `frontend/src/components/GraphApp.tsx` — `MAX_UNFOCUSED_DAG_NODES` (DAG-only), `dagKeep`, `erdKeep`, `erdNoTables`, `erdFilterEmpty`, `erdNodeEmpty`, `onlyRenderVisibleElements={isErd}`
+- `frontend/src/components/GraphApp.tsx` — `MAX_UNFOCUSED_DAG_NODES` (DAG-only), `dagKeep`, `erdKeep`, `erdNoTables`, `erdFilterEmpty`, `erdNodeEmpty`, `onlyRenderVisibleElements={isErd}`, `DAG_FIT_FOCUSED`, `dagFitOptions`, `direction: isDag && focusId ? "TB" : undefined`
+- `frontend/src/lib/layout.ts` — `LayoutEngine` `opts.direction`, `layoutNodes(sized, edges, direction)` (`rankdir` override)
+- `dbdocs/site/bundle/assets/js/ui/ui.js` — `route()` `r.view === "erd"` branch, `_scrollToErd` (`#erd-heading` id + focus), `renderOverview` (`erd-heading` id)
+- `dbdocs/site/bundle/assets/js/ui/overlays.js` — the "Entity-relationship diagram" quick action (`action: "erd"`) — the `#/erd` producer
 - `dbdocs/site/builder.py` / `dbdocs/extract/erd.py` — `erd_algo` (metadata)
 
 ## Pluggable graph layout (dagre / radial registry)
@@ -652,9 +676,14 @@ copytree(src=BUNDLE_DIR, dst=out, dirs_exist_ok=True)
 Versioning is a plain directory layout any static host serves as-is — no
 external tooling. `deploy()` generates into `site/<version>/`, maintains
 `site/versions.json` (moving a `--alias` to the new version and off others), and
-copies the build to each alias dir; the SPA reads `versions.json` and renders a
-version dropdown. `--push` is opt-in (off by default, outward-facing) and shells
-git to publish `gh-pages`, raising `DeployError` on a non-zero exit. Both
+copies the build to each alias dir. The SPA's version switcher is gated on an
+explicit `metadata.versioned` flag: `generate(versioned=False)` (the default,
+plain-generate path) writes `False`, while `deploy()` passes `versioned=True`.
+The service tier's `isVersioned()` returns that flag; `initVersions()` in ui.js
+early-exits when it is falsy, so a `generate`'d site makes zero `versions.json`
+requests (no 404 noise). A `deploy`'d site always has a sibling `versions.json`,
+so the fetch is safe. `--push` is opt-in (off by default, outward-facing) and
+shells git to publish `gh-pages`, raising `DeployError` on a non-zero exit. Both
 `deploy()` and `delete()` validate that `version` and every `alias` are safe
 single path segments matching `^[A-Za-z0-9._-]+$` and are not `.` or `..`,
 raising `DeployError` on violation — this includes aliases read back from
@@ -663,7 +692,7 @@ raising `DeployError` on violation — this includes aliases read back from
 ### Example
 
 ```python
-# dbdocs/site/deploy.py — validate segments, then generate into site/<version>/
+# dbdocs/site/deploy.py — validate segments, then generate with versioned=True
 _SAFE_SEGMENT = re.compile(r"^[A-Za-z0-9._-]+$")
 
 def _validate_segment(value: str, kind: str) -> None:
@@ -676,10 +705,27 @@ def _validate_segment(value: str, kind: str) -> None:
 _validate_segment(version, "version")
 if alias is not None:
     _validate_segment(alias, "alias")
-ReportBuilder(config).generate(output_dir=str(version_dir))
+ReportBuilder(config).generate(output_dir=str(version_dir), versioned=True)
+
+# dbdocs/site/builder.py — generate() writes the flag into metadata
+data["metadata"]["versioned"] = versioned   # False by default, True from deploy()
+```
+
+```javascript
+// service.js — DOM-free accessor
+export function isVersioned() { return !!DATA.metadata.versioned; }
+
+// ui.js — initVersions() gates the fetch on the flag
+function initVersions() {
+  if (!svc.isVersioned()) return;
+  fetch("../versions.json")...
+}
 ```
 
 - `dbdocs/site/deploy.py` — `def deploy`, `def _upsert_version`, `def _push_gh_pages`, `def _validate_segment`
+- `dbdocs/site/builder.py` — `def generate` (`versioned` kwarg, `metadata["versioned"]`)
+- `dbdocs/site/bundle/assets/js/service/service.js` — `isVersioned`
+- `dbdocs/site/bundle/assets/js/ui/ui.js` — `initVersions` (early-exit guard)
 
 ## Click group entrypoint
 

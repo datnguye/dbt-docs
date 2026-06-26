@@ -99,6 +99,21 @@ describe("layoutNodes (dagre)", () => {
     expect(pos.has("a")).toBe(true);
     expect(pos.has("b")).toBe(true);
   });
+
+  it("TB direction stacks nodes vertically: successive x coords are close, y coords spread", () => {
+    const chain = [CENTER, A, B, C];
+    const edges = [
+      { source: "center", target: "a" },
+      { source: "a", target: "b" },
+      { source: "b", target: "c" },
+    ];
+    const pos = layoutNodes(chain, edges, "TB");
+    const ys = chain.map((s) => pos.get(s.id)!.y);
+    const xs = chain.map((s) => pos.get(s.id)!.x);
+    const ySpread = Math.max(...ys) - Math.min(...ys);
+    const xSpread = Math.max(...xs) - Math.min(...xs);
+    expect(ySpread).toBeGreaterThan(xSpread);
+  });
 });
 
 describe("applyPositions", () => {
@@ -180,5 +195,18 @@ describe("layout registry", () => {
     const pos = resolveLayout("flat")([A, B], []);
     expect(pos.get("a")).toEqual({ x: 0, y: 0 });
     expect(pos.get("b")).toEqual({ x: 0, y: 0 });
+  });
+
+  it("dagre engine forwards direction=TB: y-spread exceeds x-spread for a linear chain", () => {
+    const chain = [CENTER, A, B, C];
+    const edges = [
+      { source: "center", target: "a" },
+      { source: "a", target: "b" },
+      { source: "b", target: "c" },
+    ];
+    const pos = resolveLayout("dagre")(chain, edges, { direction: "TB" });
+    const ys = chain.map((s) => pos.get(s.id)!.y);
+    const xs = chain.map((s) => pos.get(s.id)!.x);
+    expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(Math.max(...xs) - Math.min(...xs));
   });
 });

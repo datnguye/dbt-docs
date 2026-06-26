@@ -1071,3 +1071,24 @@ def test_api_node_docs_with_column_referenced_by_validate_against_schema(api_out
     for node_file in (api_out / "nodes").iterdir():
         doc = json.loads(node_file.read_text(encoding="utf-8"))
         validator.validate(doc)
+
+
+# ---------------------------------------------------------------------------
+# versioned flag in metadata
+# ---------------------------------------------------------------------------
+
+
+def test_generate_sets_versioned_false_by_default(monkeypatch, config, fake_manifest, fake_catalog):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate())
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    assert data["metadata"]["versioned"] is False
+
+
+def test_generate_sets_versioned_true_when_requested(
+    monkeypatch, config, fake_manifest, fake_catalog
+):
+    _patch_boundaries(monkeypatch, fake_manifest, fake_catalog)
+    out = Path(ReportBuilder(config).generate(versioned=True))
+    data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
+    assert data["metadata"]["versioned"] is True
