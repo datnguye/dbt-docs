@@ -87,7 +87,7 @@ code, pre { font-family: "SF Mono", "Roboto Mono", Menlo, Consolas, monospace; }
 .brand-generated { color: var(--text-soft); font-size: 12px; font-weight: 400; white-space: nowrap; }
 .search-wrap { position: relative; flex: 1; max-width: 520px; }
 #search {
-  width: 100%; padding: 7px 12px; border-radius: var(--radius);
+  width: 100%; padding: 7px 76px 7px 12px; border-radius: var(--radius);
   border: 1px solid var(--border); background: var(--bg-soft); color: var(--text);
 }
 #search:focus { outline: none; border-color: var(--accent); }
@@ -599,6 +599,178 @@ a.score-chip:hover {
 a.score-chip:hover .score-name { text-decoration: none; }
 a.score-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .score-chip { transition: none; } a.score-chip:hover { transform: none; } }
+
+/* ── theme transition ───────────────────────────────────────────────────────
+   A brief ease so toggling dark mode fades rather than snapping. Scoped only
+   to background/border/color so it doesn't make every interaction feel laggy.
+   Applied via the .theme-transition class that ui.js adds for 300ms then removes. */
+.theme-transition,
+.theme-transition *,
+.theme-transition *::before,
+.theme-transition *::after {
+  transition: background-color 0.25s ease, border-color 0.25s ease, color 0.2s ease !important;
+}
+
+/* ── page-mount micro-transition ────────────────────────────────────────────
+   Subtle fade+slide-up when route() replaces #app content (150ms, fast). */
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.page-enter { animation: page-enter 0.15s ease-out both; }
+
+/* ── graph skeleton loader ──────────────────────────────────────────────────
+   Shimmer gradient shown inside .graph-host while the React Flow bundle mounts.
+   Replaced by the graph once dbdocsGraph.mount() fires. */
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+.graph-skeleton {
+  width: 100%; height: 480px; border-radius: var(--radius);
+  background: linear-gradient(90deg,
+    var(--bg-soft) 25%,
+    var(--bg-elev) 37%,
+    var(--bg-soft) 63%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+
+/* ── toast notifications ────────────────────────────────────────────────────
+   Corner-anchored stack. Individual toasts slide in from the right, fade out.
+   The ARIA live region (#toast-region) is visually positioned at the bottom-right. */
+#toast-region {
+  position: fixed; bottom: 24px; right: 24px; z-index: 200;
+  display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+  max-width: 320px;
+}
+.toast {
+  display: flex; align-items: center; gap: 10px; pointer-events: none;
+  padding: 10px 16px; border-radius: var(--radius);
+  background: var(--bg-elev); border: 1px solid var(--border);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15); color: var(--text);
+  font-size: 13px; font-weight: 500;
+  animation: toast-in 0.2s ease-out both;
+}
+.toast.toast-out {
+  animation: toast-out 0.2s ease-in both;
+}
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(24px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes toast-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(24px); }
+}
+
+/* ── command palette ────────────────────────────────────────────────────────
+   Centered modal overlay with a frosted backdrop. */
+#cmd-backdrop {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0,0,0,0.45);
+  display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 15vh;
+}
+#cmd-palette {
+  width: min(640px, 92vw);
+  background: var(--bg-elev); border: 1px solid var(--border);
+  border-radius: calc(var(--radius) + 2px); box-shadow: 0 12px 48px rgba(0,0,0,0.24);
+  overflow: hidden;
+  animation: palette-in 0.14s ease-out both;
+}
+@keyframes palette-in {
+  from { opacity: 0; transform: scale(0.97) translateY(-8px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0); }
+}
+.cmd-input-wrap {
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.cmd-input-wrap .ic { flex-shrink: 0; }
+#cmd-input {
+  flex: 1; border: none; outline: none; background: transparent;
+  font-size: 15px; color: var(--text); line-height: 1.4;
+}
+#cmd-input::placeholder { color: var(--text-soft); }
+.cmd-kbd-close {
+  flex-shrink: 0; padding: 2px 6px; border-radius: 4px;
+  background: var(--bg-soft); border: 1px solid var(--border);
+  color: var(--text-soft); font-size: 11px; font-family: inherit;
+}
+#cmd-results {
+  max-height: 360px; overflow-y: auto;
+  padding: 4px 0;
+}
+.cmd-result {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 16px; cursor: pointer; color: var(--text);
+  font-size: 13px; text-decoration: none;
+}
+.cmd-result:hover, .cmd-result.cmd-active {
+  background: var(--accent-soft); text-decoration: none;
+}
+.cmd-result-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmd-result-meta { font-size: 11px; color: var(--text-soft); white-space: nowrap; flex-shrink: 0; }
+.cmd-section-label {
+  padding: 6px 16px 2px; font-size: 10px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-soft);
+}
+.cmd-empty { padding: 20px 16px; text-align: center; color: var(--text-soft); font-size: 13px; }
+
+/* ── ⌘K hint in the search box ──────────────────────────────────────────────
+   A small kbd chip rendered inside .search-wrap (absolute-positioned right edge). */
+.cmd-hint {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  pointer-events: none;
+  display: flex; align-items: center; gap: 3px;
+}
+.cmd-hint kbd {
+  padding: 1px 5px; border-radius: 4px;
+  background: var(--bg-elev); border: 1px solid var(--border);
+  color: var(--text-soft); font-size: 10px; font-family: inherit;
+  line-height: 1.6;
+}
+
+/* ── sticky table headers ───────────────────────────────────────────────────
+   th in the Columns/Tests/other node-page tables stick at the top of their
+   scroll container (.content) on vertical scroll. background is explicitly set
+   so rows don't bleed through. */
+.node-section-body th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--bg-elev); box-shadow: 0 1px 0 var(--border);
+}
+
+/* ── scroll-spy active section ──────────────────────────────────────────────
+   When IntersectionObserver marks a node-section as visible, its summary gets a
+   subtle left accent stripe via the .section-in-view modifier. */
+details.node-section.section-in-view > summary.node-section-summary {
+  color: var(--accent);
+}
+details.node-section.section-in-view > summary.node-section-summary .node-section-title {
+  color: var(--accent);
+}
+details.node-section.section-in-view > summary.node-section-summary::before {
+  color: var(--accent);
+}
+
+/* ── Reduced-motion gate ────────────────────────────────────────────────────
+   Neutralize the palette/toast/page/skeleton/theme keyframes + transitions. */
+@media (prefers-reduced-motion: reduce) {
+  .theme-transition,
+  .theme-transition *,
+  .theme-transition *::before,
+  .theme-transition *::after {
+    transition: none !important;
+  }
+  .page-enter { animation: none; }
+  .graph-skeleton { animation: none; background: var(--bg-soft); }
+  .toast { animation: none; }
+  .toast.toast-out { animation: none; opacity: 0; }
+  #cmd-palette { animation: none; }
+  @keyframes toast-in  { from { opacity: 1; transform: none; } to { opacity: 1; transform: none; } }
+  @keyframes toast-out { from { opacity: 0; transform: none; } to { opacity: 0; transform: none; } }
+}
 .score-chip.good { border-left-color: var(--score-good); }
 .score-chip.warn { border-left-color: var(--score-warn); }
 .score-chip.bad  { border-left-color: var(--score-bad); }
@@ -624,6 +796,10 @@ a.score-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2
 .health-fail  { background: var(--status-fail-bg); color: var(--status-fail-fg); border-color: var(--status-fail-bd); }
 .health-error { background: var(--status-error-bg); color: var(--status-error-fg); border-color: var(--status-error-bd); }
 .health-skip  { background: var(--bg-soft); color: var(--text-soft); border-color: var(--border); }
+
+[data-theme="dark"] .toast { box-shadow: 0 4px 16px rgba(0,0,0,0.45); }
+[data-theme="dark"] #cmd-palette { box-shadow: 0 12px 48px rgba(0,0,0,0.55); }
+[data-theme="dark"] #cmd-backdrop { background: rgba(0,0,0,0.65); }
 
 /* Hamburger + search toggle — hidden on desktop, revealed on phones below. */
 .nav-toggle { display: none; font-size: 18px; }
