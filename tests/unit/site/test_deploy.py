@@ -14,7 +14,7 @@ from dbdocs.site import deploy as deploy_mod
 def patched_builder(monkeypatch):
     """Stub ReportBuilder.generate so deploy tests don't touch dbterd/sqlglot."""
 
-    def _fake_generate(self, output_dir=None):
+    def _fake_generate(self, output_dir=None, versioned=False):
         out = Path(output_dir)
         out.mkdir(parents=True, exist_ok=True)
         (out / "index.html").write_text("<html></html>", encoding="utf-8")
@@ -170,6 +170,22 @@ def test_delete_rejects_unsafe_version(patched_builder, tmp_path):
     cfg = DbDocsConfig(output_dir=str(tmp_path / "site"))
     with pytest.raises(DeployError, match="Invalid version"):
         deploy_mod.delete(cfg, version="..")
+
+
+def test_deploy_passes_versioned_true_to_generate(tmp_path, monkeypatch):
+    calls = []
+
+    def _fake_generate(self, output_dir=None, versioned=False):
+        calls.append({"output_dir": output_dir, "versioned": versioned})
+        out = Path(output_dir)
+        out.mkdir(parents=True, exist_ok=True)
+        (out / "index.html").write_text("<html></html>", encoding="utf-8")
+        return str(out)
+
+    monkeypatch.setattr(deploy_mod.ReportBuilder, "generate", _fake_generate)
+    cfg = DbDocsConfig(output_dir=str(tmp_path / "site"))
+    deploy_mod.deploy(cfg, version="1.0")
+    assert calls[0]["versioned"] is True
 
 
 def test_deploy_dotdot_version_rejected(patched_builder, tmp_path):

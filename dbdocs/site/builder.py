@@ -211,7 +211,7 @@ class ReportBuilder:
                 counts[label] = counts.get(label, 0) + len(collection)
         return counts
 
-    def generate(self, output_dir: "str | None" = None) -> str:
+    def generate(self, output_dir: "str | None" = None, versioned: bool = False) -> str:
         """Render the site into ``output_dir`` (or config's). Returns its path.
 
         The data dict is written as an external ``dbdocs-data.json.gz`` that the
@@ -225,6 +225,10 @@ class ReportBuilder:
         see ``_write_api`` for the layout. The api/ directory is created after the
         bundle copytree (so the rmtree + copytree cycle doesn't touch it) and is
         not shipped in the wheel.
+
+        ``versioned=True`` is set by ``deploy()`` to signal that a
+        ``versions.json`` sibling exists; the SPA gates its version-switcher fetch
+        on this flag so a plain ``generate`` build never makes a 404 request.
         """
         out = Path(output_dir) if output_dir else Path(self.config.output_path)
         if out.exists():
@@ -233,6 +237,7 @@ class ReportBuilder:
         copytree(src=BUNDLE_DIR, dst=out, dirs_exist_ok=True)
 
         data = self.build_data()
+        data["metadata"]["versioned"] = versioned
         data["metadata"].update(self._stage_branding(out))
         index = out / "index.html"
         index.write_text(strip_marker(index.read_text(encoding="utf-8")), encoding="utf-8")

@@ -31,6 +31,8 @@ const MAX_UNFOCUSED_DAG_NODES = 400;
 const ERD_FIT_FOCUSED = { padding: 0.12, minZoom: 0.5, maxZoom: 1 };
 const ERD_FIT_FULL = { padding: 0.08, maxZoom: 1 };
 
+const DAG_FIT_FOCUSED: FitViewOptions = { padding: 0.2 };
+
 const CATALOG_ORDER: ResourceType[] = ["model", "source", "seed", "snapshot", "analysis", "operation"];
 const SEMANTIC_ORDER: ResourceType[] = ["metric", "semantic_model", "saved_query"];
 const OTHER_ORDER: ResourceType[] = ["unit_test", "exposure"];
@@ -489,6 +491,7 @@ export function GraphApp({
     const centerId = isErd ? erdFocusId : focus;
     const positions = resolveLayout(layoutName)(flow.sizes, asLayoutEdges(flow.edges), {
       centerId,
+      direction: isDag && focusId ? "TB" : undefined,
     });
 
     let laidNodes = applyPositions(flow.nodes, positions);
@@ -542,6 +545,8 @@ export function GraphApp({
   // window (no minZoom floor). On the overview, a focused table lands at the
   // readable floor while the full snowflake fits everything.
   const erdFitOptions = isErd && erdFocusId ? ERD_FIT_FOCUSED : ERD_FIT_FULL;
+
+  const dagFitOptions = isDag && focusId ? DAG_FIT_FOCUSED : undefined;
 
   return (
     <div className="dbd-graph">
@@ -680,16 +685,18 @@ export function GraphApp({
                   zoomOnPinch: false,
                   zoomOnDoubleClick: false,
                   preventScrolling: false,
-                  fitViewOptions: erdFitOptions,
+                  fitViewOptions: isErd ? erdFitOptions : dagFitOptions,
                 }
               : isErd
                 ? { fitViewOptions: erdFitOptions }
-                : {})}
+                : isDag && dagFitOptions
+                  ? { fitViewOptions: dagFitOptions }
+                  : {})}
           >
-            <FitOnFullscreen options={isErd ? erdFitOptions : undefined} />
+            <FitOnFullscreen options={isErd ? erdFitOptions : dagFitOptions} />
             <FitOnDataChange
               signature={fitSignature}
-              options={isErd ? erdFitOptions : undefined}
+              options={isErd ? erdFitOptions : dagFitOptions}
             />
             <Background />
             {interactive && <Controls showInteractive={false} />}

@@ -19,14 +19,15 @@ export type Positions = Map<string, { x: number; y: number }>;
 /**
  * A layout engine maps sized nodes + edges to top-left positions. `opts.centerId`
  * is the focal node for center-based engines (radial); engines that ignore it
- * (dagre) simply don't read it. New engines register via `registerLayout` and are
- * selected by name with `resolveLayout`, so the call sites pick a layout by name
+ * (dagre) simply don't read it. `opts.direction` overrides the default rank
+ * direction for the dagre engine. New engines register via `registerLayout` and
+ * are selected by name with `resolveLayout`, so call sites pick a layout by name
  * instead of hardcoding which function to call.
  */
 export type LayoutEngine = (
   sized: Sized[],
   edges: LayoutEdge[],
-  opts?: { centerId?: string | null },
+  opts?: { centerId?: string | null; direction?: string },
 ) => Positions;
 
 const LAYOUTS = new Map<string, LayoutEngine>();
@@ -63,9 +64,9 @@ export function mostConnected(sized: Sized[], edges: LayoutEdge[]): string | nul
   return best;
 }
 
-export function layoutNodes(sized: Sized[], edges: { source: string; target: string }[]): Map<string, { x: number; y: number }> {
+export function layoutNodes(sized: Sized[], edges: { source: string; target: string }[], direction?: string): Map<string, { x: number; y: number }> {
   const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: DIRECTION, nodesep: NODE_SEP, ranksep: RANK_SEP, marginx: 24, marginy: 24 });
+  g.setGraph({ rankdir: direction ?? DIRECTION, nodesep: NODE_SEP, ranksep: RANK_SEP, marginx: 24, marginy: 24 });
   g.setDefaultEdgeLabel(() => ({}));
 
   for (const node of sized) {
@@ -193,7 +194,7 @@ export function asLayoutEdges(edges: Edge[]): { source: string; target: string }
   return edges.map((e) => ({ source: e.source, target: e.target }));
 }
 
-registerLayout("dagre", (sized, edges) => layoutNodes(sized, edges));
+registerLayout("dagre", (sized, edges, opts) => layoutNodes(sized, edges, opts?.direction));
 
 registerLayout("radial", (sized, edges, opts) => {
   const center = opts?.centerId ?? mostConnected(sized, edges);
