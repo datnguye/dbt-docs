@@ -60,7 +60,7 @@ Mermaid. No config file → graceful dbterd defaults.
 
 ## Artifact stability across dbt versions (incl. dbt Core 2.0)
 
-`dbterd` parses `manifest.json` / `catalog.json` via `dbt_artifacts_parser`,
+`dbterd` parses `manifest.json` / `catalog.json` via `artifact_parser`,
 which supports **manifest schema v1–v12** and auto-detects the version.
 `file.read_manifest(path, version=...)` lets you pin a version but normally you
 let it auto-detect.

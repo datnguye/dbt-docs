@@ -248,7 +248,7 @@ def _resolve_within_cwd(value: str, field_name: str) -> Path:
 All dbt-artifact access goes through `dbdocs/core/artifacts.py`: `load_artifacts`
 returns dbterd-parsed `(manifest, catalog)` with schema-version relaxation;
 `adapter_type` reads the warehouse from metadata (the default sqlglot dialect).
-**Critical:** `dbt_artifacts_parser` aliases the `schema` field to `schema_` to
+**Critical:** `artifact_parser` aliases the `schema` field to `schema_` to
 avoid clobbering Pydantic's `BaseModel.schema()`, so `entity.schema` is a *bound
 method*, not the value. Always read `schema_`; `db_schema(entity)` centralizes
 that with safe `_unknown` fallbacks. Never read `.schema` off a parsed node.

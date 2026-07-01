@@ -1,10 +1,10 @@
 """Loading dbt artifacts (manifest/catalog) via the dbterd parser.
 
-dbterd parses ``manifest.json`` / ``catalog.json`` into ``dbt_artifacts_parser``
+dbterd parses ``manifest.json`` / ``catalog.json`` into ``artifact_parser``
 Pydantic models. Two cross-cutting gotchas live here so the rest of dbdocs never
 has to think about them:
 
-* **Schema field aliasing.** ``dbt_artifacts_parser`` aliases the ``schema``
+* **Schema field aliasing.** ``artifact_parser`` aliases the ``schema``
   field to ``schema_`` to avoid clobbering Pydantic's ``BaseModel.schema()`` —
   so ``node.schema`` is a *bound method*, not the value. Always read
   ``node.schema_``; :func:`db_schema` centralizes that.
