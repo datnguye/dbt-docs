@@ -1,0 +1,15 @@
+# Per-1,000,000-token pricing (USD) for the status-line cost tracker
+# (.claude/scripts/statusline-cost.py). First-party Claude API rates.
+# Cache write = 1.25x (5m) / 2x (1h) base input; cache read = 0.1x — the script
+# derives those from `input`, so only base input/output rates live here.
+# Matched by substring against the session's model id; `default` is the fallback.
+models:
+  claude-opus-4-8: {input: 5.0, output: 25.0}
+  claude-opus-4-7: {input: 5.0, output: 25.0}
+  claude-opus-4-6: {input: 5.0, output: 25.0}
+  claude-sonnet-5: {input: 3.0, output: 15.0}
+  claude-sonnet-4-6: {input: 3.0, output: 15.0}
+  claude-haiku-4-5: {input: 1.0, output: 5.0}
+  claude-fable-5: {input: 10.0, output: 50.0}
+  claude-mythos-5: {input: 10.0, output: 50.0}
+default: {input: 5.0, output: 25.0}
