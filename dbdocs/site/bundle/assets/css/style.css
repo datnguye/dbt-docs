@@ -464,8 +464,10 @@ details.node-section:last-of-type { border-bottom: none; }
 /* Graph host (React Flow bundle mounts here) */
 .graph-host { width: 100%; }
 /* Fullscreen: the host fills the screen; its inner .dbd-graph grows to match. */
-.graph-host:fullscreen { background: var(--bg); padding: 0; }
-.graph-host:fullscreen .dbd-graph { height: 100vh; border: none; border-radius: 0; }
+.graph-host:fullscreen,
+.erd-section-host:fullscreen { background: var(--bg); padding: 0; }
+.graph-host:fullscreen .dbd-graph,
+.erd-section-host:fullscreen .dbd-graph { height: 100vh; border: none; border-radius: 0; }
 
 .page-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .page-head h2 { border-bottom: none; padding-bottom: 0; }

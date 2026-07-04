@@ -753,6 +753,29 @@ test.describe("overview ERD — toolbar, focus, full-screen", () => {
     await expect(fsBtn).toContainText("Full screen");
   });
 
+  test("model-page Related ERD full screen fills the viewport (no letterbox)", async ({ page }) => {
+    await page.goto("index.html#/node/model.jaffle_shop.orders");
+    const erdSection = page.locator("#node-sec-erd");
+    await expect(erdSection.locator(".dbd-graph")).toBeVisible();
+    await erdSection
+      .locator('.node-section-summary-actions .fs-btn[title="Toggle full screen"]')
+      .click();
+    await expect(async () => {
+      const result = await page.evaluate(() => {
+        const fs = document.fullscreenElement;
+        if (!fs) return "no fullscreen element";
+        const graph = fs.querySelector(".dbd-graph");
+        if (!graph) return "no graph in fullscreen element";
+        const height = graph.getBoundingClientRect().height;
+        return Math.abs(height - window.innerHeight) <= 2
+          ? "fills"
+          : `graph ${height}px vs viewport ${window.innerHeight}px`;
+      });
+      expect(result).toBe("fills");
+    }).toPass({ timeout: 3000 });
+    await page.keyboard.press("Escape");
+  });
+
   test("every node-page section has a copy-link button that toasts on click", async ({
     page,
     context,

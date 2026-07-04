@@ -981,7 +981,10 @@ function _erdSection(n) {
   var mounted = false;
   var fsBtn = el("button", {
     class: "fs-btn", type: "button", title: "Toggle full screen",
-    onclick: function () { toggleFullscreen(host); },
+    onclick: function () {
+      if (!sec.open) sec.open = true;
+      toggleFullscreen(host);
+    },
   }, [icon("fullscreen", 15), " Full screen"]);
   var sec = nodeSection({
     nodeId: n.id, id: "erd", title: "Related ERD",
