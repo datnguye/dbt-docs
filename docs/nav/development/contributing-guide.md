@@ -77,7 +77,7 @@ against this repo they load automatically:
 | Plugin | Marketplace | What it does |
 |--------|-------------|--------------|
 | `frontend-design` | `claude-plugins-official` | Frontend design skill for the graph-UI (`frontend/`) work |
-| `cost-statusline` | `status-line-cost` | Status line: model, context %, session cost, duration, lines changed |
+| `oh-my-statusline` | `infinitelambda` | Status line: model, context %, session cost, duration, lines changed |
 
 Plugins are optional developer ergonomics — you can contribute without them. Any
 personal enable/disable overrides belong in the gitignored
