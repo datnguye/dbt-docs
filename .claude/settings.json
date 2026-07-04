@@ -51,12 +51,12 @@
       }
     ]
   },
-  "enabledPlugins": {
-    "frontend-design@claude-plugins-official": true,
-    "cost-statusline@status-line-cost": true
-  },
   "statusLine": {
     "type": "command",
-    "command": "\"$HOME/.claude/plugins/marketplaces/status-line-cost/scripts/claude_cost.sh\""
+    "command": "\"$HOME/.claude/plugins/marketplaces/infinitelambda/scripts/claude_cost.sh\""
+  },
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": true,
+    "oh-my-statusline@infinitelambda": true
   }
 }
