@@ -597,6 +597,44 @@ test.describe("overview ERD — toolbar, focus, full-screen", () => {
     await expect(lockBtn).toContainText("Locked");
   });
 
+  test("a locked ERD lets the wheel scroll the page (no scroll trap)", async ({ page }) => {
+    await page.goto("index.html#/overview");
+    const app = page.locator("#app");
+    const canvas = page.locator(".dbd-canvas").first();
+    await expect(canvas).toBeVisible();
+    await canvas.scrollIntoViewIfNeeded();
+    const before = await app.evaluate((el) => el.scrollTop);
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error("ERD canvas has no bounding box");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, before > 0 ? -200 : 200);
+    await expect(async () => {
+      expect(await app.evaluate((el) => el.scrollTop)).not.toBe(before);
+    }).toPass({ timeout: 2000 });
+  });
+
+  test("an unlocked ERD captures the wheel to zoom instead of scrolling the page", async ({ page }) => {
+    await page.goto("index.html#/overview");
+    const lockBtn = page.locator(".dbd-erd-bar .dbd-lock-btn");
+    await lockBtn.click();
+    await expect(lockBtn).toHaveClass(/on/);
+    const app = page.locator("#app");
+    const canvas = page.locator(".dbd-canvas").first();
+    await canvas.scrollIntoViewIfNeeded();
+    const viewport = page.locator(".react-flow__viewport").first();
+    await expect(viewport).toBeVisible();
+    const scrollBefore = await app.evaluate((el) => el.scrollTop);
+    const transformBefore = await viewport.evaluate((el) => el.style.transform);
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error("ERD canvas has no bounding box");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, 200);
+    await expect(async () => {
+      expect(await viewport.evaluate((el) => el.style.transform)).not.toBe(transformBefore);
+    }).toPass({ timeout: 2000 });
+    expect(await app.evaluate((el) => el.scrollTop)).toBe(scrollBefore);
+  });
+
   test("overview ERD renders all tables without a focus", async ({ page }) => {
     await page.goto("index.html#/overview");
     const canvas = page.locator(".dbd-canvas");
