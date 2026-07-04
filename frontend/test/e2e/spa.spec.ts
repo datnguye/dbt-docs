@@ -297,14 +297,14 @@ test.describe("graphs", () => {
   test("the model_contract algo detects FK relationships and renders the ERD", async ({ page }) => {
     await page.goto("index.html#/node/model.jaffle_shop.orders");
     await expect(page.locator(".dbd-graph-empty")).toHaveCount(0);
-    const tables = page.locator(".dbd-erd");
+    const tables = page.locator(".erd-table");
     await expect(tables.first()).toBeVisible();
     await expect(tables).toHaveCount(3);
-    await expect(page.locator(".dbd-erd-focus .dbd-erd-name")).toHaveText("orders");
+    const orders = tables.filter({ has: page.locator(".erd-table-name", { hasText: /^orders$/ }) });
+    await expect(orders.locator(".erd-table-name")).toHaveText("orders");
     await expect(page.locator(".react-flow__edge")).toHaveCount(2);
-    const focus = page.locator(".dbd-erd-focus");
-    await expect(focus.locator(".dbd-erd-badge.dbd-pk")).toHaveCount(1);
-    await expect(focus.locator(".dbd-erd-badge.dbd-fk")).toHaveCount(1);
+    await expect(orders.locator(".erd-column-badge.badge-pk")).toHaveCount(1);
+    await expect(orders.locator(".erd-column-badge.badge-fk")).toHaveCount(1);
   });
 });
 
@@ -601,26 +601,65 @@ test.describe("overview ERD — toolbar, focus, full-screen", () => {
     await page.goto("index.html#/overview");
     const canvas = page.locator(".dbd-canvas");
     await expect(canvas).toBeVisible();
-    const tables = page.locator(".dbd-erd");
+    const tables = page.locator(".erd-table");
     await expect(tables.first()).toBeVisible();
     await expect(tables).toHaveCount(4);
   });
 
+  test("unfocused overview ERD shows every column with no collapse toggles", async ({ page }) => {
+    await page.goto("index.html#/overview");
+    const orders = page
+      .locator(".erd-table")
+      .filter({ has: page.locator(".erd-table-name", { hasText: /^orders$/ }) });
+    await expect(orders.locator(".erd-table-name")).toHaveText("orders");
+    expect(await orders.locator(".erd-column").count()).toBeGreaterThan(2);
+    await expect(page.locator(".erd-table-expand")).toHaveCount(0);
+    await expect(page.locator(".erd-table-more")).toHaveCount(0);
+  });
+
+  test("focused overview ERD compacts to key columns plus a '+N more columns' row", async ({ page }) => {
+    await page.goto("index.html#/overview?erd_focus=model.jaffle_shop.orders");
+    const orders = page
+      .locator(".erd-table")
+      .filter({ has: page.locator(".erd-table-name", { hasText: /^orders$/ }) });
+    await expect(orders.locator(".erd-table-name")).toHaveText("orders");
+    await expect(orders.locator(".erd-table-more")).toContainText("more columns");
+    const columnCount = await orders.locator(".erd-column").count();
+    const badgeCount = await orders
+      .locator(".erd-column-badge.badge-pk, .erd-column-badge.badge-fk")
+      .count();
+    expect(columnCount).toBe(badgeCount);
+  });
+
+  test("ERD table headers carry the schema qualifier and a resource color strip", async ({ page }) => {
+    await page.goto("index.html#/overview");
+    const orders = page
+      .locator(".erd-table")
+      .filter({ has: page.locator(".erd-table-name", { hasText: /^orders$/ }) });
+    await expect(orders.locator(".erd-table-schema")).toHaveText(/./);
+    await expect(orders).toHaveAttribute("data-resource", "model");
+    const stripColor = await orders
+      .locator(".erd-table-header")
+      .evaluate((el) => getComputedStyle(el).borderTopColor);
+    const cardBorder = await orders.evaluate((el) => getComputedStyle(el).borderLeftColor);
+    expect(stripColor).not.toBe(cardBorder);
+  });
+
   test("overview ERD toolbar focus filters to a radial neighborhood", async ({ page }) => {
     await page.goto("index.html#/overview");
-    const all = page.locator(".dbd-erd");
+    const all = page.locator(".erd-table");
     await expect(all.first()).toBeVisible();
     await page.fill(".dbd-toolbar input", "orders");
     await expect(async () => {
       expect(await all.count()).toBeLessThan(4);
     }).toPass({ timeout: 3000 });
-    await expect(page.locator(".dbd-erd-focus")).toHaveCount(1);
-    await expect(page.locator(".dbd-erd-focus .dbd-erd-name")).toHaveText("orders");
+    const orders = all.filter({ has: page.locator(".erd-table-name", { hasText: /^orders$/ }) });
+    await expect(orders.locator(".erd-table-name")).toHaveText("orders");
   });
 
   test("overview ERD schema filter narrows the table set", async ({ page }) => {
     await page.goto("index.html#/overview");
-    const all = page.locator(".dbd-erd");
+    const all = page.locator(".erd-table");
     await expect(all.first()).toBeVisible();
     const schemaSelect = page.locator(".dbd-toolbar select").first();
     const options = schemaSelect.locator("option");
@@ -648,9 +687,11 @@ test.describe("overview ERD — toolbar, focus, full-screen", () => {
 
   test("navigating to overview with erd_focus= restores the focus", async ({ page }) => {
     await page.goto("index.html#/overview?erd_focus=model.jaffle_shop.orders");
-    const focused = page.locator(".dbd-erd-focus");
-    await expect(focused).toBeVisible({ timeout: 5000 });
-    await expect(focused.locator(".dbd-erd-name")).toHaveText("orders");
+    const orders = page
+      .locator(".erd-table")
+      .filter({ has: page.locator(".erd-table-name", { hasText: /^orders$/ }) });
+    await expect(orders).toBeVisible({ timeout: 5000 });
+    await expect(orders.locator(".erd-table-name")).toHaveText("orders");
   });
 
   test("overview ERD full-screen button exists in the page-head-actions area", async ({ page }) => {
@@ -690,13 +731,17 @@ test.describe("overview ERD — toolbar, focus, full-screen", () => {
     await expect(toast).toHaveCount(0, { timeout: 4000 });
   });
 
-  test("model-page Related ERD renders full columns (not the compact +N more)", async ({ page }) => {
+  test("model-page Related ERD renders full columns (no column collapse)", async ({ page }) => {
     await page.goto("index.html#/node/model.jaffle_shop.orders");
-    const focused = page.locator(".dbd-erd-focus");
-    await expect(focused).toBeVisible({ timeout: 5000 });
-    await expect(focused.locator(".dbd-erd-more")).toHaveCount(0);
-    const cols = focused.locator(".dbd-erd-col");
-    expect(await cols.count()).toBeGreaterThan(2);
+    const orders = page
+      .locator(".erd-table")
+      .filter({ has: page.locator(".erd-table-name", { hasText: /^orders$/ }) });
+    await expect(orders).toBeVisible({ timeout: 5000 });
+    // collapseColumns is off on the model page, so every column shows and the
+    // "N more" collapse toggle is absent even for a wide table (orders has 18).
+    await expect(orders.locator(".erd-table-expand")).toHaveCount(0);
+    const cols = orders.locator(".erd-column");
+    expect(await cols.count()).toBeGreaterThan(5);
   });
 });
 

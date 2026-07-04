@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^1.1.4",
+    "@datnguye/erd-flow": "file:vendor/datnguye-erd-flow-0.2.0.tgz",
     "@xyflow/react": "^12.3.0",
     "react": "^18.3.0",
     "react-dom": "^18.3.0"

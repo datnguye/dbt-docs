@@ -21,7 +21,7 @@ function normalize(data) {
     nodes: d.nodes || {},
     lineage: d.lineage || {},
     columnLineage: d.columnLineage || {},
-    erd: d.erd || {},
+    erd: (d.erd && d.erd.nodes) ? d.erd : { nodes: [], edges: [] },
     tree: (d.tree && d.tree.byDatabase) ? d.tree : { byDatabase: {} },
     readme: d.readme || "",
     health: {

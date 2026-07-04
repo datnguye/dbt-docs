@@ -57,6 +57,7 @@ class _FakeErd:
                         "from_columns": ["id"],
                         "to_columns": ["cust_id"],
                         "label": "c_to_s",
+                        "relationship_type": "one-to-many",
                         "cardinality": "n1",
                     }
                 ],
@@ -108,7 +109,7 @@ def test_build_data_assembles_all_sections(monkeypatch, config, fake_manifest, f
         "model.shop.customers",
         "model.shop.stg_customers",
     }
-    assert data["erd"]["edges"][0]["source"] == "model.shop.stg_customers"
+    assert data["erd"]["edges"][0]["to_id"] == "model.shop.stg_customers"
     assert data["tree"]["byDatabase"]["db"]
 
 
@@ -241,9 +242,11 @@ def test_build_erd_data_parses_json_to_nodes_edges():
     assert [c["name"] for c in pk] == ["id"]
     assert [c["name"] for c in fk] == ["id"]
     edge = data["edges"][0]
-    # source = to_id (parent/referenced side); target = from_id (FK/child side).
-    assert edge["source"] == "model.shop.stg_customers"
-    assert edge["target"] == "model.shop.customers"
+    # to_id = parent/referenced side; from_id = FK/child side.
+    assert edge["to_id"] == "model.shop.stg_customers"
+    assert edge["from_id"] == "model.shop.customers"
+    assert edge["relationship_type"] == "one-to-many"
+    assert edge["cardinality"] == "n1"
 
 
 def test_build_erd_data_empty_relationships():
@@ -257,10 +260,10 @@ def test_build_erd_data_empty_relationships():
 def test_backfill_fk_flags_skips_dangling_edge_and_empty_from_columns():
     """_backfill_fk_flags must not crash on a dangling edge target or empty from_columns."""
     node = {"id": "n1", "columns": [{"name": "col_a", "is_foreign_key": False}]}
-    # Dangling edge: target "n_missing" not in nodes list.
-    dangling = {"target": "n_missing", "from_columns": ["col_a"]}
-    # Edge with no from_columns: target exists but nothing to backfill.
-    no_cols = {"target": "n1", "from_columns": []}
+    # Dangling edge: from_id "n_missing" not in nodes list.
+    dangling = {"from_id": "n_missing", "from_columns": ["col_a"]}
+    # Edge with no from_columns: from_id exists but nothing to backfill.
+    no_cols = {"from_id": "n1", "from_columns": []}
     erd_mod._backfill_fk_flags([node], [dangling, no_cols])
     # Neither edge should have set is_foreign_key on node.col_a.
     assert node["columns"][0]["is_foreign_key"] is False
@@ -336,9 +339,9 @@ def test_build_erd_data_entity_name_format_resolves_edge_ids():
     node_ids = {n["id"] for n in data["nodes"]}
     assert node_ids == {"model.jaffle_shop.orders", "model.jaffle_shop.locations"}
     edge = data["edges"][0]
-    # source = parent (to_id → locations), target = child (from_id → orders)
-    assert edge["source"] == "model.jaffle_shop.locations"
-    assert edge["target"] == "model.jaffle_shop.orders"
+    # to_id = parent (locations), from_id = child (orders)
+    assert edge["to_id"] == "model.jaffle_shop.locations"
+    assert edge["from_id"] == "model.jaffle_shop.orders"
     # FK backfill: orders.location_id was not_fk in raw payload but is in from_columns.
     orders = next(n for n in data["nodes"] if n["id"] == "model.jaffle_shop.orders")
     by_name = {c["name"]: c for c in orders["columns"]}
@@ -428,9 +431,9 @@ def test_build_erd_data_ambiguous_entity_name_left_unresolved():
     data = erd_mod.build_erd_data(_AmbiguousErd())
     edge = data["edges"][0]
     # "customers" is unambiguous → resolves to the full unique_id.
-    assert edge["source"] == "model.pkg_a.customers"
+    assert edge["to_id"] == "model.pkg_a.customers"
     # "orders" is ambiguous (two nodes share that name) → stays as the raw short name.
-    assert edge["target"] == "orders"
+    assert edge["from_id"] == "orders"
 
 
 def test_build_erd_forwards_options_and_forces_json(monkeypatch):

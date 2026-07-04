@@ -92,6 +92,20 @@ describe("radialLayout", () => {
   });
 });
 
+describe("mostConnected", () => {
+  it("returns the node touched by the most edges", () => {
+    expect(mostConnected([CENTER, A, B, C], EDGES)).toBe("center");
+  });
+
+  it("returns null for an empty node list", () => {
+    expect(mostConnected([], [])).toBeNull();
+  });
+
+  it("falls back to the first node when no edges exist", () => {
+    expect(mostConnected([A, B], [])).toBe("a");
+  });
+});
+
 describe("layoutNodes (dagre)", () => {
   it("assigns positions to all nodes", () => {
     const pos = layoutNodes([CENTER, A, B], [{ source: "center", target: "a" }]);
@@ -150,44 +164,15 @@ describe("asLayoutEdges", () => {
   });
 });
 
-describe("mostConnected", () => {
-  it("returns the node touched by the most edges", () => {
-    expect(mostConnected([CENTER, A, B, C], EDGES)).toBe("center");
-  });
-
-  it("returns null for an empty node list", () => {
-    expect(mostConnected([], [])).toBeNull();
-  });
-
-  it("falls back to the first node when no edges exist", () => {
-    expect(mostConnected([A, B], [])).toBe("a");
-  });
-});
-
 describe("layout registry", () => {
-  it("resolves the built-in dagre and radial engines", () => {
+  it("resolves the built-in dagre engine", () => {
     expect(typeof resolveLayout("dagre")).toBe("function");
-    expect(typeof resolveLayout("radial")).toBe("function");
   });
 
   it("falls back to dagre for an unknown layout name", () => {
     const pos = resolveLayout("does-not-exist")([CENTER, A], [{ source: "center", target: "a" }]);
     expect(pos.has("center")).toBe(true);
     expect(pos.has("a")).toBe(true);
-  });
-
-  it("the radial engine centers on the explicit centerId", () => {
-    const pos = resolveLayout("radial")([CENTER, A, B], EDGES, { centerId: "center" });
-    const c = pos.get("center")!;
-    expect(c.x).toBeCloseTo(-CENTER.width / 2, 0);
-    expect(c.y).toBeCloseTo(-CENTER.height / 2, 0);
-  });
-
-  it("the radial engine auto-centers on the most-connected node when no centerId is given", () => {
-    const pos = resolveLayout("radial")([CENTER, A, B, C], EDGES);
-    const c = pos.get("center")!;
-    expect(c.x).toBeCloseTo(-CENTER.width / 2, 0);
-    expect(c.y).toBeCloseTo(-CENTER.height / 2, 0);
   });
 
   it("a newly registered engine is resolvable by name", () => {

@@ -36,18 +36,32 @@ export interface LineageEdge {
   target: string;
 }
 
-export interface ErdNodeRecord extends NodeRecord {
-  columns: ColumnRecord[];
+export interface ErdColumnRecord {
+  name: string;
+  data_type: string;
+  description?: string;
+  is_primary_key?: boolean;
+  is_foreign_key?: boolean;
+}
+
+export interface ErdNodeRecord {
+  id: string;
+  label: string;
+  resource_type: ResourceType;
+  database: string;
+  schema_name: string;
+  columns: ErdColumnRecord[];
 }
 
 export interface ErdEdge {
   id: string;
-  source: string;
-  target: string;
+  from_id: string;
+  to_id: string;
   from_columns: string[];
   to_columns: string[];
   label?: string | null;
-  type?: string;
+  relationship_type?: string;
+  cardinality?: string;
 }
 
 export interface DbdocsData {

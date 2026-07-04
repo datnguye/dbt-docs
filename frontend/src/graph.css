@@ -255,89 +255,74 @@
   opacity: 0.25;
 }
 
-/* ERD table node */
-.dbd-erd {
+/* ERD table node — @datnguye/erd-flow's card restyled to the SPA theme.
+   Colors flow through the --erd-* tokens ErdApp maps from the SPA vars; the
+   rules here cover shape and typography the tokens can't express. Row
+   geometry (32px header, 22px rows) is pinned by the package's edge-anchor
+   constants — never change heights here. */
+.dbd-graph .erd-table {
   min-width: 210px;
-  border: 1px solid var(--border, #e3e6ea);
   border-radius: 8px;
-  background: var(--bg-elev, #fff);
-  color: var(--text, #1c2024);
   overflow: hidden;
-  font-size: 12px;
+  font-family: inherit;
+  box-shadow: none;
 }
-.dbd-erd-focus {
+.dbd-graph .erd-table[data-resource="source"] {
+  border-style: solid;
+}
+.dbd-graph .erd-table[data-focus="true"] {
   box-shadow: 0 0 0 2px var(--accent, #2f6feb);
 }
-.dbd-erd-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+/* Resource-colored top strip; the header keeps its pinned 32px box height. */
+.dbd-graph .erd-table-header {
   gap: 8px;
-  padding: 7px 10px;
+  border-bottom: none;
   border-top: 3px solid var(--border, #888);
-  background: var(--bg-soft, #f5f6f8);
 }
-.dbd-erd-name {
+.dbd-graph .erd-table[data-resource="model"] .erd-table-header { border-top-color: var(--model, #2f6feb); }
+.dbd-graph .erd-table[data-resource="source"] .erd-table-header { border-top-color: var(--source, #16a34a); }
+.dbd-graph .erd-table[data-resource="seed"] .erd-table-header { border-top-color: var(--seed, #b45309); }
+.dbd-graph .erd-table[data-resource="snapshot"] .erd-table-header { border-top-color: var(--snapshot, #7c3aed); }
+.dbd-graph .erd-table-icon {
+  display: none;
+}
+.dbd-graph .erd-table-name {
   font-weight: 700;
 }
-.dbd-erd-schema {
-  color: var(--text-soft, #5b636c);
-  font-size: 11px;
-}
-.dbd-erd-cols {
-  display: flex;
-  flex-direction: column;
-}
-.dbd-erd-col {
-  position: relative; /* anchor the per-column connection handles */
-  display: flex;
-  align-items: center;
+.dbd-graph .erd-column {
+  grid-template-columns: auto 1fr auto;
   gap: 8px;
-  padding: 3px 10px;
   border-top: 1px solid var(--border, #e3e6ea);
 }
-.dbd-erd-colname {
+.dbd-graph .erd-column-name {
   font-family: monospace;
-  flex: 1;
 }
-.dbd-erd-more {
-  padding: 3px 10px;
-  border-top: 1px solid var(--border, #e3e6ea);
-  color: var(--text-soft, #5b636c);
-  font-size: 11px;
-  font-style: italic;
-}
-.dbd-erd-coltype {
-  color: var(--text-soft, #5b636c);
+.dbd-graph .erd-column-type {
   font-size: 11px;
 }
-.dbd-erd-badge {
+.dbd-graph .erd-column-badge {
   display: inline-flex;
   justify-content: center;
   min-width: 22px; /* reserve the badge column so names align with/without PK/FK */
-  font-size: 10px;
-  font-weight: 700;
   padding: 0 5px;
   border-radius: 4px;
   color: #fff;
 }
-.dbd-erd-badge.dbd-none { background: transparent; }
-.dbd-pk {
+.dbd-graph .erd-column-badge.badge-pk {
   background: var(--seed, #b45309);
+  color: #fff;
 }
-.dbd-fk {
+.dbd-graph .erd-column-badge.badge-fk {
   background: var(--accent, #2f6feb);
+  color: #fff;
+}
+.dbd-graph .erd-column-badge.badge-none {
+  background: transparent;
 }
 
-/* Connection handles stay functional (edges anchor to the exact column rows)
-   but are invisible — no dot on every row. They only matter as edge endpoints. */
-.react-flow__handle.dbd-h-col,
-.react-flow__handle.dbd-h-table {
-  width: 1px;
-  height: 1px;
-  min-width: 0;
-  min-height: 0;
-  background: transparent;
-  border: none;
-  opacity: 0;
+/* Hovering an ERD edge thickens it. The edge's inline stroke width reads the
+   --erd-edge-width custom property, so hover overrides the property (which the
+   inline var() resolves) rather than fighting the inline style. */
+.dbd-graph .react-flow__edge:hover {
+  --erd-edge-width: 2.5;
 }

@@ -1,15 +1,19 @@
 """Structured ERD data via dbterd's official ``json`` target.
 
-dbterd 1.28.0 ships a built-in, schema-validated ``json`` target that emits
+dbterd ships a built-in, schema-validated ``json`` target that emits
 ``{nodes, edges, metadata}``. Each node carries ``id`` (the dbt unique_id),
 ``name``, ``schema_name``, ``database``, ``resource_type``, and ``columns``
 (with ``data_type``, ``is_primary_key``, ``is_foreign_key``). Each edge carries
 ``id``, ``from_id`` (FK/child side), ``to_id`` (referenced/parent side),
-``from_columns``, ``to_columns``, ``label``, and ``cardinality``.
+``from_columns``, ``to_columns``, ``label``, ``relationship_type``, and
+``cardinality``.
 
-``build_erd_data`` maps that shape into the SPA's ``{nodes, edges}`` — the
-React Flow bundle reads ``nodes`` (entities + column flags) and ``edges``
-(FK relationships, ``source``/``target`` keyed by dbt unique_id).
+``build_erd_data`` maps that shape into the SPA's ``{nodes, edges}`` using
+dbterd's own field names throughout — no renaming. The React Flow bundle reads
+``nodes`` (entities + column flags) and ``edges`` (FK relationships, keyed by
+dbt unique_id in ``from_id``/``to_id``) and maps ``from_id``/``to_id`` to React
+Flow's ``source``/``target`` on its own side, with the parent/referenced node
+as ``to_id``.
 """
 
 import json
@@ -54,17 +58,14 @@ def build_erd_data(erd: DbtErd) -> dict:
     When ``entity_name_format`` is configured, dbterd emits edge ``from_id`` /
     ``to_id`` as the formatted entity name (e.g. ``orders``) rather than the
     full unique_id (e.g. ``model.jaffle_shop.orders``). A ``name_to_id`` map
-    resolves those short names back to the node id before building edges, so the
-    SPA's ``source``/``target`` always reference a valid node ``id``.
+    resolves those short names back to the node id before building edges, so
+    the emitted ``from_id``/``to_id`` always reference a valid node ``id``.
 
     Some dbterd algos (e.g. ``model_contract``) do not set ``is_foreign_key``
     on node columns even when those columns appear in FK edges. After building
     edges, any column named in an edge's ``from_columns`` (the FK/child side)
-    has its ``is_foreign_key`` flag back-filled to ``True`` on the target node.
-
-    SPA edge direction: ``source`` is the referenced (parent) side, ``target``
-    is the FK (child) side — matching dbterd's ``to_id`` and ``from_id``
-    respectively.
+    has its ``is_foreign_key`` flag back-filled to ``True`` on the ``from_id``
+    node.
     """
     payload = json.loads(erd.get_erd())
     raw_nodes = payload.get("nodes", [])
@@ -95,13 +96,13 @@ def _backfill_fk_flags(nodes: "list[dict]", edges: "list[dict]") -> None:
     """
     nodes_by_id = {n["id"]: n for n in nodes}
     for edge in edges:
-        target_node = nodes_by_id.get(edge["target"])
-        if target_node is None:
+        from_node = nodes_by_id.get(edge["from_id"])
+        if from_node is None:
             continue
         fk_cols = {c.lower() for c in edge.get("from_columns", [])}
         if not fk_cols:
             continue
-        for col in target_node["columns"]:
+        for col in from_node["columns"]:
             if col["name"].lower() in fk_cols:
                 col["is_foreign_key"] = True
 
@@ -111,12 +112,12 @@ def _build_node(node: dict) -> dict:
         "id": node["id"],
         "label": node.get("name") or "",
         "database": node.get("database") or "",
-        "schema": node.get("schema_name") or "",
+        "schema_name": node.get("schema_name") or "",
         "resource_type": node.get("resource_type") or "model",
         "columns": [
             {
                 "name": c["name"],
-                "type": c.get("data_type") or "",
+                "data_type": c.get("data_type") or "",
                 "description": c.get("description") or "",
                 "is_primary_key": bool(c.get("is_primary_key")),
                 "is_foreign_key": bool(c.get("is_foreign_key")),
@@ -135,16 +136,17 @@ def _resolve_edge_id(raw: str, node_ids: "set[str]", name_to_id: "dict[str, str]
 
 
 def _build_edge(edge: dict, index: int, node_ids: "set[str]", name_to_id: "dict[str, str]") -> dict:
-    # from_id is the FK/child side; to_id is the referenced/parent side.
-    # SPA convention: source = parent (to_id), target = child (from_id).
+    # from_id is the FK/child side; to_id is the referenced/parent side —
+    # dbterd's own convention, carried through unchanged.
     raw_from = edge.get("from_id") or ""
     raw_to = edge.get("to_id") or ""
     return {
         "id": edge.get("id") or f"e{index}",
-        "source": _resolve_edge_id(raw_to, node_ids, name_to_id),
-        "target": _resolve_edge_id(raw_from, node_ids, name_to_id),
+        "from_id": _resolve_edge_id(raw_from, node_ids, name_to_id),
+        "to_id": _resolve_edge_id(raw_to, node_ids, name_to_id),
         "from_columns": edge.get("from_columns") or [],
         "to_columns": edge.get("to_columns") or [],
         "label": edge.get("label") or "",
-        "type": edge.get("cardinality") or "",
+        "relationship_type": edge.get("relationship_type") or "",
+        "cardinality": edge.get("cardinality") or "",
     }

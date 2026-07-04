@@ -1,5 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { ErdApp } from "@/components/ErdApp";
 import { GraphApp } from "@/components/GraphApp";
 import type { DagLayer, DbdocsData, GraphMode } from "@/lib/types";
 import "@xyflow/react/dist/style.css";
@@ -31,19 +32,28 @@ function mount(el: HTMLElement): void {
   };
   const root = createRoot(el);
   roots.set(el, root);
+  const isErd = mode === "erd" || mode === "erd-node";
   root.render(
     <StrictMode>
-      <GraphApp
-        mode={mode}
-        focus={focus}
-        data={data}
-        onOpenNode={onOpenNode}
-        initialRtype={initialRtype}
-        initialSchema={initialSchema}
-        initialLayer={initialLayer}
-        initialErdFocus={initialErdFocus}
-        initialErdSchema={initialErdSchema}
-      />
+      {isErd ? (
+        <ErdApp
+          mode={mode}
+          focus={focus}
+          data={data}
+          onOpenNode={onOpenNode}
+          initialErdFocus={initialErdFocus}
+          initialErdSchema={initialErdSchema}
+        />
+      ) : (
+        <GraphApp
+          focus={focus}
+          data={data}
+          onOpenNode={onOpenNode}
+          initialRtype={initialRtype}
+          initialSchema={initialSchema}
+          initialLayer={initialLayer}
+        />
+      )}
     </StrictMode>,
   );
 }
