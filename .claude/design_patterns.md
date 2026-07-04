@@ -400,10 +400,8 @@ but the **DAG and ERD use different strategies** — don't conflate them:
 - **ERD — render all, lazily.** The ERD is rendered by the shared
   `@datnguye/erd-flow` package's `<ErdFlow>`, hosted by `ErdApp`
   (`frontend/src/components/ErdApp.tsx`), which owns the toolbar, lock button,
-  hash sync, and empty states. The package is **not on npm** — it installs from
-  the vendored tarball `frontend/vendor/datnguye-erd-flow-<version>.tgz` via a
-  `file:` path in `frontend/package.json`; keep the dep pointing inside the
-  repo (a registry semver or an out-of-repo path breaks `npm ci`). The overview
+  hash sync, and empty states. The package installs from the npm registry
+  (`"@datnguye/erd-flow": "^1.0.0"` in `frontend/package.json`). The overview
   ERD has **no node cap**: it lays out
   *every* table (schema-filtered in `toErdPayload`) so the whole snowflake is
   visible, and passes `onlyRenderVisibleElements={isErd}` so React Flow mounts
