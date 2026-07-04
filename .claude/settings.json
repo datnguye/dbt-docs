@@ -53,9 +53,19 @@
   },
   "statusLine": {
     "type": "command",
-    "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/scripts/statusline-cost.py\""
+    "command": "\"$HOME/.claude/plugins/marketplaces/status-line-cost/scripts/claude_cost.sh\""
   },
   "enabledPlugins": {
-    "frontend-design@claude-plugins-official": true
+    "frontend-design@claude-plugins-official": true,
+    "cost-statusline@status-line-cost": true
+  },
+  "extraKnownMarketplaces": {
+    "status-line-cost": {
+      "source": {
+        "source": "github",
+        "repo": "il-dat/status-line-cost",
+        "ref": "main"
+      }
+    }
   }
 }
