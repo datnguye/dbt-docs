@@ -1,8 +1,7 @@
 import dagre from "@dagrejs/dagre";
 import type { Edge, Node } from "@xyflow/react";
 
-// Hierarchical left-to-right layout. For lineage this reads upstream → downstream;
-// for ERDs, referenced → referencing — the conventional schema-diagram direction.
+// Hierarchical left-to-right layout: for the DAG this reads upstream → downstream.
 const DIRECTION = "LR";
 const NODE_SEP = 60;
 const RANK_SEP = 140;
@@ -195,8 +194,3 @@ export function asLayoutEdges(edges: Edge[]): { source: string; target: string }
 }
 
 registerLayout("dagre", (sized, edges, opts) => layoutNodes(sized, edges, opts?.direction));
-
-registerLayout("radial", (sized, edges, opts) => {
-  const center = opts?.centerId ?? mostConnected(sized, edges);
-  return center ? radialLayout(center, sized, edges) : layoutNodes(sized, edges);
-});

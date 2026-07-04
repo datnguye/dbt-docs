@@ -64,9 +64,10 @@ SPA loads (via `data.js`, which fetches `dbdocs-data.json.gz` and exposes it on
                                      macros:[{name,package,sql}] }, ... },
   "lineage":      { edges:[{source,target}], parents:{id:[...]}, children:{id:[...]} },
   "columnLineage":{ "<model unique_id>": <per-column upstream map>, ... },
-  "erd":          { nodes:[{id,label,database,schema,resource_type,
-                            columns:[{name,type,is_primary_key,is_foreign_key,description}]}],
-                    edges:[{id,source,target,from_columns,to_columns,label,type}] },
+  "erd":          { nodes:[{id,label,database,schema_name,resource_type,
+                            columns:[{name,data_type,is_primary_key,is_foreign_key,description}]}],
+                    edges:[{id,from_id,to_id,from_columns,to_columns,label,
+                            relationship_type,cardinality}] },
   "tree":         { byDatabase: { db: { schema: [ids...] } } },
   "readme":       "<markdown rendered on the overview, or ''>"
 }
@@ -91,13 +92,16 @@ SPA loads (via `data.js`, which fetches `dbdocs-data.json.gz` and exposes it on
   and logged, not fatal. The SPA renders `columnLineage` **inline** as an
   "Upstream lineage" column in each node's Columns table — not a separate
   section.
-- `erd` is **structured** `{nodes, edges}` (no more Mermaid). `nodes` are
-  entities with their columns (`is_primary_key` / `is_foreign_key` flags),
-  `edges` are foreign-key relationships — all keyed by dbt `unique_id`. Built by
-  `dbdocs/extract/erd.py` (`build_erd` / `build_erd_data`), which runs dbterd's
-  built-in `json` target (dbterd ≥ 1.28.0; emits `{nodes, edges, metadata}`).
-  The React Flow bundle derives all three graph surfaces (full DAG, global ERD,
-  per-node ERD) from `lineage` + `erd`.
+- `erd` is structured `{nodes, edges}` carrying dbterd's own field names
+  (`schema_name`, `data_type`, `from_id`/`to_id`, `relationship_type`,
+  `cardinality`). `nodes` are entities with their columns (`is_primary_key` /
+  `is_foreign_key` flags), `edges` are foreign-key relationships — `from_id` is
+  the FK/child side, `to_id` the referenced/parent side, both keyed by dbt
+  `unique_id`. Built by `dbdocs/extract/erd.py` (`build_erd` /
+  `build_erd_data`), which runs dbterd's built-in `json` target (emits
+  `{nodes, edges, metadata}`). The React Flow bundle derives the DAG from
+  `lineage` and both ERD surfaces (overview + per-node) from `erd` via
+  `@datnguye/erd-flow`'s `ErdPayload` contract.
 
 ## Payload (external gzip — `dbdocs/site/inject.py` + `builder.generate`)
 

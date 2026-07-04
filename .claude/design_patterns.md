@@ -397,32 +397,52 @@ but the **DAG and ERD use different strategies** — don't conflate them:
   set; when unfocused and over `MAX_UNFOCUSED_DAG_NODES`, it shows a "focus a
   node" placeholder instead of laying out every node. `buildDagFlow(data,
   keepIds)` filters to the kept set up front, so dagre never sees the full graph.
-- **ERD — render all, lazily.** The overview ERD has **no node cap**: it lays out
-  *every* table (schema-filtered) so the whole snowflake is visible, and relies on
-  React Flow's `onlyRenderVisibleElements` (set only for the ERD) to mount just the
-  nodes in the viewport — so DOM cost is bounded by what's on screen, not by N.
-  Removing `onlyRenderVisibleElements` would regress this (and the per-column
-  both-side handles make each ERD node ~2× the DOM, so the lazy render is
-  load-bearing). Focusing a table (search box) narrows to its FK neighborhood
-  (`erdNeighborhood`); the per-node ERD (`erd-node`) shows a placeholder naming
-  the configured dbterd `erd_algo` (with a docs link) when no relationships are
-  detected.
+- **ERD — render all, lazily.** The ERD is rendered by the shared
+  `@datnguye/erd-flow` package's `<ErdFlow>`, hosted by `ErdApp`
+  (`frontend/src/components/ErdApp.tsx`), which owns the toolbar, lock button,
+  hash sync, and empty states. The package installs from the npm registry
+  (`"@datnguye/erd-flow": "^1.0.0"` in `frontend/package.json`). The overview
+  ERD has **no node cap**: it lays out
+  *every* table (schema-filtered in `toErdPayload`) so the whole snowflake is
+  visible, and passes `onlyRenderVisibleElements={isErd}` so React Flow mounts
+  just the nodes in the viewport — DOM cost is bounded by what's on screen, not
+  by N. Removing that prop would regress this (each ERD card renders a row per
+  column, so the lazy render is load-bearing). Focusing a table (search box)
+  narrows to its FK neighborhood (`<ErdFlow focus focusDepth={1}>`); the
+  per-node ERD (`erd-node`) shows a placeholder naming the configured dbterd
+  `erd_algo` (with a docs link) when no relationships are detected.
 
-**Compact overview, full model-page.** `buildErdFlow(..., compact)` controls per
-node column rendering: the overview ERD draws nodes **compact** (only PK/FK
-columns, with a "+N more columns" row — `visibleColumns` / `erdRowCount`) so a
-wide fact table stays a few rows tall and the radial snowflake reads; the
-model-page ERD (`erd-node`) passes `compact = false` so a single model and its
-1-hop neighbors show **every** column and edge (the neighborhood is small, so the
-DOM stays bounded). The unfocused-ERD empty state is **split**: zero ERD nodes
-shows the `erd_algo` "no relationships detected" placeholder (`erdNoTables`),
-while a schema filter that matched nothing shows "clear the schema filter"
-(`erdFilterEmpty`) — don't collapse the two.
+**Compact only when focused.** `compact={isErd && !!erdFocusId}`: the
+*unfocused* overview and the model-page ERD show **every** column; focusing a
+table compacts each card to its PK/FK columns plus a passive italic "+N more
+columns" row (the package's `hidden_column_count`), so the focused neighborhood
+reads at a glance. `collapseColumns={false}` always — dbdocs has no interactive
+column-collapse toggle. The layout box mirrors this via `erdEstimateSize`
+(fixed 230px wide, `34 + rows×22` tall, the +N row counted). The unfocused-ERD
+empty state is **split**: zero ERD nodes shows the `erd_algo` "no relationships
+detected" placeholder (`erdNoTables`), while a schema filter that matched
+nothing shows "clear the schema filter" (`erdFilterEmpty`) — don't collapse the
+two.
+
+**The dbdocs ERD identity is contract.** The theme rides two seams — `ERD_THEME`
+maps the SPA's CSS vars onto the package's `--erd-*` tokens (PK pill = `--seed`
+via a `.badge-pk` override, FK/focus/selection = `--accent`, edges stay React
+Flow gray `#b1b1b7` width 1 / accent 2.5 selected), and `graph.css` restyles the
+`.erd-*` card classes (resource-colored 3px top strip per `[data-resource]`,
+schema in the header via `showSchema`, hidden icon, sans-serif card + monospace
+column names). Edge behavior is pinned by props: `edgePath="smoothstep"`,
+`compositeEdges="fan"` (one connector per column pair),
+`animateEdge={(e) => e.cardinality === "n1"}`, and `dimOnSelect` (selection
+dims everything else). Fit is `{padding: 0.08, maxZoom: 1}` full /
+`{padding: 0.12, minZoom: 0.5, maxZoom: 1}` focused, with `refitKey={fullscreen}`
+re-fitting after fullscreen toggles. These props and overrides *are* the dbdocs
+ERD look — don't swap any of them for the package defaults (a different radial,
+cubic edges, dbt-orange icons, an all-monospace card).
 
 **Focused DAG — top-down + tighter fit.** A focused DAG (`isDag && focusId`)
 overrides the default left-right dagre rank direction with `"TB"` (top-to-bottom)
 via the layout registry's `opts.direction` (the `dagre` engine forwards it to
-`rankdir`; the unfocused DAG and the ERD radial layout ignore it), and uses the
+`rankdir`; the unfocused DAG ignores it), and uses the
 tighter `DAG_FIT_FOCUSED` (`padding: 0.2`) for the initial / data-change /
 fullscreen fit instead of the full-graph default. Don't hardcode `rankdir` at the
 call site — thread it through `opts.direction` so the engine stays the single
@@ -461,9 +481,10 @@ const dagKeep = useMemo(() => {
 }, [isDag, focusId, data, rtype, schema]);
 ```
 
-- `frontend/src/lib/data.ts` — `neighborhood`, `buildDagFlow`, `erdNeighborhood`, `buildErdFlow` (`compact`), `erdRowCount`
-- `frontend/src/components/nodes/ErdTableNode.tsx` — `visibleColumns` (compact key-column filter + "+N more")
-- `frontend/src/components/GraphApp.tsx` — `MAX_UNFOCUSED_DAG_NODES` (DAG-only), `dagKeep`, `erdKeep`, `erdNoTables`, `erdFilterEmpty`, `erdNodeEmpty`, `onlyRenderVisibleElements={isErd}`, `DAG_FIT_FOCUSED`, `dagFitOptions`, `direction: isDag && focusId ? "TB" : undefined`
+- `frontend/src/lib/data.ts` — `neighborhood`, `buildDagFlow`
+- `frontend/src/components/ErdApp.tsx` — `toErdPayload` (schema filter), `erdEstimateSize`, `ERD_THEME`, `ERD_FIT_FOCUSED`/`ERD_FIT_FULL`, `erdNoTables`, `erdFilterEmpty`, `erdNodeEmpty`, the `<ErdFlow>` prop block (`compact`, `showSchema`, `edgePath`, `compositeEdges`, `animateEdge`, `dimOnSelect`, `onlyRenderVisibleElements`, `refitKey`)
+- `frontend/src/graph.css` — the `.dbd-graph .erd-*` override block (top strip, badge pills, edge-hover `--erd-edge-width`)
+- `frontend/src/components/GraphApp.tsx` — `MAX_UNFOCUSED_DAG_NODES` (DAG-only), `dagKeep`, `DAG_FIT_FOCUSED`, `dagFitOptions`, `direction: focusId ? "TB" : undefined`
 - `frontend/src/lib/layout.ts` — `LayoutEngine` `opts.direction`, `layoutNodes(sized, edges, direction)` (`rankdir` override)
 - `dbdocs/site/bundle/assets/js/ui/ui.js` — `route()` `r.view === "erd"` branch, `_scrollToErd` (`#erd-heading` id + focus), `renderOverview` (`erd-heading` id)
 - `dbdocs/site/bundle/assets/js/ui/overlays.js` — the "Entity-relationship diagram" quick action (`action: "erd"`) — the `#/erd` producer
@@ -473,18 +494,28 @@ const dagKeep = useMemo(() => {
 
 ### Theory
 
-The graph app picks a layout **by name from a registry**, not with a hardcoded
-`if`. `frontend/src/lib/layout.ts` defines a `LayoutEngine` type
-(`(sized, edges, opts?{centerId}) => Positions`), a name→engine map, and
-`registerLayout(name, engine)` / `resolveLayout(name)` (falls back to `dagre` for
-an unknown name). Two engines are registered at module load: **`dagre`** (the
-hierarchical LR layout — the DAG and any non-centered case) and **`radial`** (the
-ERD "snowflake": focus/hub at the center, FK neighbors fanning out on concentric
-rings by BFS hop). `GraphApp` selects `isDag ? "dagre" : "radial"`; the radial
-engine centers on the explicit focus or, unfocused, on `mostConnected(...)` (the
-highest-degree table). Add a new layout by registering it — don't fork the
-selection logic. The DAG stays dagre (flow direction matters); radial is
-ERD-only.
+Both graph surfaces pick a layout **by name from a registry**, not with a
+hardcoded `if` — but they use **two registries**, one per app:
+
+- **DAG (local registry).** `frontend/src/lib/layout.ts` defines a
+  `LayoutEngine` type (`(sized, edges, opts?{centerId, direction}) =>
+  Positions`), a name→engine map, and `registerLayout(name, engine)` /
+  `resolveLayout(name)` (falls back to `dagre` for an unknown name). `GraphApp`
+  resolves `"dagre"` (hierarchical LR; `opts.direction` flips a focused DAG to
+  `"TB"`). The DAG stays dagre — flow direction matters.
+- **ERD (erd-flow's registry).** `@datnguye/erd-flow` exposes the same
+  `registerLayout(name, engine)` seam; its engines receive **pre-sized** nodes
+  (`SizedErdNode`) plus `opts.centerId` and return `LaidOutNode[]`. `ErdApp`
+  registers **`"snowflake"`** at module load — an adapter over this repo's
+  `radialLayout` (focus/hub at the center, FK neighbors on concentric BFS
+  rings) centering on the explicit focus or, unfocused, on `mostConnected(...)`
+  — and selects it with `<ErdFlow layout="snowflake">`. The node sizes the
+  engine sees come from the `estimateSize` prop (`erdEstimateSize`), so the
+  ring math runs on the same fixed 230×(34+22·rows) boxes it always has.
+
+Add a new layout by registering it in the right registry — don't fork the
+selection logic, and don't let the ERD fall back to the package's built-in
+`radial` (a different, per-component hub-wedge algorithm).
 
 Radial sizing keeps a tall fact table from overlapping a small focus: ring radius
 clears the **larger of the neighbor's width/height** half-extent, and the
@@ -494,21 +525,23 @@ the pair vertically over the center).
 ### Example
 
 ```typescript
-// frontend/src/lib/layout.ts — engines register by name; resolve picks one
-registerLayout("dagre", (sized, edges) => layoutNodes(sized, edges));
-registerLayout("radial", (sized, edges, opts) => {
-  const center = opts?.centerId ?? mostConnected(sized, edges);
-  return center ? radialLayout(center, sized, edges) : layoutNodes(sized, edges);
-});
+// frontend/src/lib/layout.ts — DAG engines register by name; resolve picks one
+registerLayout("dagre", (sized, edges, opts) => layoutNodes(sized, edges, opts?.direction));
 
-// frontend/src/components/GraphApp.tsx — pick by name, never a hardcoded fn
-const positions = resolveLayout(isDag ? "dagre" : "radial")(
-  flow.sizes, asLayoutEdges(flow.edges), { centerId },
-);
+// frontend/src/components/ErdApp.tsx — the ERD snowflake registers into
+// erd-flow's registry and is selected by name on the component
+const snowflakeEngine: LayoutEngine = (sized, edges, opts) => {
+  const center = opts.centerId ?? mostConnected(boxes, layoutEdges);
+  const positions = center ? radialLayout(center, boxes, layoutEdges) : new Map();
+  // ...project back to LaidOutNode[]
+};
+registerLayout("snowflake", snowflakeEngine);
+<ErdFlow layout="snowflake" estimateSize={erdEstimateSize} ... />
 ```
 
 - `frontend/src/lib/layout.ts` — `LayoutEngine`, `registerLayout`, `resolveLayout`, `mostConnected`, `radialLayout`, `layoutNodes`
-- `frontend/src/components/GraphApp.tsx` — `resolveLayout(isDag ? "dagre" : "radial")`
+- `frontend/src/components/GraphApp.tsx` — `resolveLayout("dagre")`
+- `frontend/src/components/ErdApp.tsx` — `snowflakeEngine`, `registerLayout("snowflake", ...)`, `erdEstimateSize`
 
 ## Layer-band DAG filter (catalog / semantic / other / all)
 
@@ -617,11 +650,14 @@ quirks `build_erd_data` patches (verify after any dbterd bump with
    edge's `from_columns` (the FK/child side), indexed by node id so it's O(1) per
    column per edge.
 
-**SPA edge direction:** `source` = the referenced/parent side (dbterd `to_id`),
-`target` = the FK/child side (dbterd `from_id`). The graph bundle's per-column
-connector handles (`buildErdFlow` in `frontend/src/lib/data.ts`) resolve each
-handle against whichever endpoint actually owns the named column (`owned(...)`),
-so a join whose FK/PK columns differ in name still lands on the right rows.
+**Edge direction is dbterd-native, end to end.** `build_erd_data` carries
+dbterd's own field names through unchanged — `from_id` (FK/child), `to_id`
+(referenced/parent), `schema_name`, `data_type`, `relationship_type`,
+`cardinality` — because that is exactly the `ErdPayload` contract
+`@datnguye/erd-flow` renders. `ErdApp`'s `toErdPayload` only maps `label` →
+`name` (and applies the schema filter); the package's edges anchor on each
+FK column's rendered row and pick the card side from live node positions, so
+this repo carries no handle-resolution layer of its own.
 
 ### Example
 
@@ -638,7 +674,7 @@ return {"nodes": nodes, "edges": edges}
 ```
 
 - `dbdocs/extract/erd.py` — `def build_erd` (forces `target="json"`), `def build_erd_data`, `def _build_node`, `def _build_edge`, `def _resolve_edge_id`, `def _backfill_fk_flags`
-- `frontend/src/lib/data.ts` — `buildErdFlow` (consumes `source`/`target`/`from_columns`/`to_columns`/`is_foreign_key`; `owned()` picks the handle column each endpoint owns)
+- `frontend/src/components/ErdApp.tsx` — `toErdPayload` (label→`name` mapping + schema filter; the payload otherwise passes through dbterd-native)
 - `pyproject.toml` — `dbterd>=1.28` (the built-in `json` target floor)
 
 ## Bundled SPA directory resolution
