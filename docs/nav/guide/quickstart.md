@@ -18,6 +18,24 @@ dbt docs generate           # writes target/manifest.json + target/catalog.json
     dbdocs needs both — the catalog is what makes `SELECT *` resolve in
     column-level lineage.
 
+!!! note "On dbt 2.0?"
+    dbt 2.0's `docs generate` no longer writes `catalog.json`. dbdocs still
+    builds from `manifest.json` alone, just without warehouse column types and
+    with thinner column-level lineage. For the full picture, have dbt write its
+    parquet information schema and let dbdocs read that instead:
+
+    ```bash
+    pip install "dbdocs[info-schema]"
+    dbt build --generate-info-schema        # writes target/info_schema/v1/
+    dbdocs generate --info-schema
+    ```
+
+    With dbt Fusion, add `--static-analysis strict` to the dbt command and the
+    info schema carries column-level lineage computed by dbt itself — usually far
+    more of it than dbdocs can reverse-engineer from SQL. Any JSON artifacts lying
+    around still help: they fill whatever the parquet leaves blank. See the
+    [CLI Reference](./cli-references.md#dbdocs-generate) for how the two merge.
+
 ## 2. Generate the site
 
 ```bash

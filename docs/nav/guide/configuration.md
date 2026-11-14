@@ -37,6 +37,8 @@ These keys control the generate/deploy pipeline rather than display.
 | `output_dir`      | `target/site` | Where the generated site is written.                             |
 | `dialect`         | adapter type  | SQL dialect override for column-level lineage parsing. Omit to derive from the artifact's `adapter_type` (snowflake, bigquery, postgres, …). |
 | `default_version` | `latest`      | Alias the version switcher lands on.                             |
+| `info_schema`     | `false`       | Read dbt 2.0's parquet information schema as the base, with any JSON artifacts in `target_dir` as enrichment. Same as `--info-schema`; needs `pip install "dbdocs[info-schema]"`. |
+| `info_schema_dir` | `<target_dir>/info_schema/v1` | Where the parquet files live. Same as `--info-schema-dir`. |
 
 !!! warning "Relative paths cannot escape the project directory"
     Relative `target_dir` and `output_dir` values that use `..` to climb above
