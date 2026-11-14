@@ -34,13 +34,17 @@ dbt-docs/
 │   ├── core/                     # foundation: config, artifacts, exceptions, log
 │   ├── extract/                  # derive doc data from artifacts:
 │   │                             #   nodes, erd, graph, column_lineage (sqlglot)
-│   └── site/                     # assemble + publish:
-│       ├── builder.py            #   ReportBuilder — the one data dict + generate
-│       ├── inject.py             #   strip_marker (data is external, not inlined)
-│       ├── deploy.py             #   versioned deploy (no mike)
-│       └── bundle/               #   the SPA: index.html + assets/{js,css,vendor,graph}/
-│                                 #     js/ = 3-tier ES modules (data→service→ui)
-│                                 #     graph/ = committed React Flow bundle
+│   ├── site/                     # assemble + publish:
+│   │   ├── builder.py            #   ReportBuilder — the one data dict + generate
+│   │   ├── inject.py             #   strip_marker (data is external, not inlined)
+│   │   ├── deploy.py             #   versioned deploy (no mike)
+│   │   └── bundle/               #   the SPA: index.html + assets/{js,css,vendor,graph}/
+│   │                             #     js/ = 3-tier ES modules (data→service→ui)
+│   │                             #     graph/ = committed React Flow bundle
+│   └── sources/                  # opt-in artifact sources wrapping ReportBuilder:
+│       ├── factory.py            #   builder_for(config) — the one switch
+│       └── info_schema/          #   --info-schema: dbt 2.0 parquet → staged JSON
+│                                 #     (reader, synth, builder; DuckDB extra)
 ├── frontend/                     # React Flow graph app (React+TS, Vite) →
 │                                 #   built into dbdocs/site/bundle/assets/graph/ (committed)
 │                                 #   src/{components,lib}, test/{unit,e2e}, @/*→src/*
@@ -51,7 +55,8 @@ dbt-docs/
 ```
 
 It's a flat single-package layout — `dbdocs/` lives at the repo root (no `src/`).
-The package is grouped by pipeline stage: `core/` → `extract/` → `site/`.
+The package is grouped by pipeline stage: `core/` → `extract/` → `site/`, with
+`sources/` as opt-in artifact sources that wrap `site/`'s `ReportBuilder`.
 
 ## Workflows
 

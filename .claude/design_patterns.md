@@ -84,8 +84,10 @@ The package is grouped by what each module does in the generate pipeline:
 `extract/` (derive the documentation data from artifacts: nodes, ERDs,
 node-level graph, column-level lineage) → `site/` (assemble + publish: the data
 dict builder, the external gzip payload, versioned deploy, and the bundled SPA).
-The CLI (`cli/`) wires user commands to `site/`. Dependencies flow one way:
-`extract/` and `site/` import from `core/`, never the reverse.
+`sources/` holds opt-in artifact sources (`--info-schema`) that wrap `site/`'s
+`ReportBuilder` (see **Opt-in artifact-source plugin**); the CLI and `deploy` pick
+the builder through `sources.factory.builder_for`. The CLI (`cli/`) wires user
+commands to `site/`. `extract/` and `site/` import from `core/`, never the reverse.
 
 ### Example
 
@@ -104,6 +106,8 @@ from dbdocs.site.inject import strip_marker
 - `dbdocs/extract/` — `nodes.py`, `erd.py`, `graph.py`, `column_lineage.py`
 - `dbdocs/site/` — `builder.py`, `inject.py`, `deploy.py`, `bundle/` (the SPA:
   `index.html` + `assets/{js,css,vendor,graph}/`)
+- `dbdocs/sources/` — `factory.py` (`builder_for`), `info_schema/`
+  (`reader.py`, `synth.py`, `builder.py`)
 - `frontend/` — the React Flow graph app (React+TS, Vite), built into the
   committed `dbdocs/site/bundle/assets/graph/`; `src/{components,lib}`,
   `test/{unit,e2e}`, `@/*`→`src/*` path alias
