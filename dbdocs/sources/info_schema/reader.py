@@ -18,6 +18,7 @@ class InfoSchemaReader:
 
     def __init__(self, directory: "str | Path") -> None:
         self.directory = Path(directory)
+        self._tables: dict[str, list[dict]] = {}
         if not self.directory.is_dir():
             raise DbDocsConfigError(f"info_schema directory not found: {self.directory}")
         project = self.table("dbt.project")
@@ -29,9 +30,16 @@ class InfoSchemaReader:
             )
 
     def table(self, name: str) -> "list[dict]":
-        path = self.directory / f"{name}.parquet"
+        """The table's rows, read once per reader and served from memory after."""
+        if name not in self._tables:
+            self._tables[name] = self._read(self.directory / f"{name}.parquet")
+        return self._tables[name]
+
+    @staticmethod
+    def _read(path: Path) -> "list[dict]":
         if not path.is_file():
             return []
-        cursor = duckdb.connect().execute("SELECT * FROM read_parquet(?)", [str(path)])
-        columns = [col[0] for col in cursor.description]
-        return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+        with duckdb.connect() as connection:
+            cursor = connection.execute("SELECT * FROM read_parquet(?)", [str(path)])
+            columns = [col[0] for col in cursor.description]
+            return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]

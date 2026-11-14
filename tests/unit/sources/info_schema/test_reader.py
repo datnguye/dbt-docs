@@ -25,6 +25,13 @@ def test_missing_table_reads_empty(v2_parquet_only):
     assert reader.table("dbt.nope") == []
 
 
+def test_each_table_is_read_once(v2_parquet_only):
+    reader = InfoSchemaReader(v2_parquet_only / "info_schema" / "v1")
+    models = reader.table("dbt.models")
+    (v2_parquet_only / "info_schema" / "v1" / "dbt.models.parquet").unlink()
+    assert reader.table("dbt.models") is models
+
+
 def test_missing_directory_raises(tmp_path):
     with pytest.raises(DbDocsConfigError, match="not found"):
         InfoSchemaReader(tmp_path / "absent")
