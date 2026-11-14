@@ -44,6 +44,14 @@ def test_explicit_run_results_path_is_enrichment(info_schema_config, v2_target, 
     assert data["health"]["testResults"]["summary"]["total"] == 30
 
 
+def test_escaping_run_results_path_falls_back_to_target(info_schema_config, v2_target):
+    for path in (v2_target / "info_schema" / "v1").glob("dbt_rt.*"):
+        path.unlink()
+    info_schema_config.run_results = "../../outside/run_results.json"
+    data = _build(info_schema_config)
+    assert data["health"]["testResults"]["summary"]["total"] == 30
+
+
 def test_unreadable_json_artifacts_are_ignored(info_schema_config, v2_target):
     (v2_target / "manifest.json").write_text("{not json", encoding="utf-8")
     assert len(_build(info_schema_config)["nodes"]) == 60

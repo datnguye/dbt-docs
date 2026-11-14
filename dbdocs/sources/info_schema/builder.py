@@ -35,7 +35,7 @@ class InfoSchemaReportBuilder(ReportBuilder):
 
     def build_data(self) -> dict:
         target = Path(self.config.target_path)
-        run_results = _read_json(Path(self.config.run_results)) if self.config.run_results else None
+        run_results = _read_json(Path(self._resolve_run_results_path()))
         with tempfile.TemporaryDirectory() as staging:
             self._stage(Path(staging), target, run_results)
             staged = ReportBuilder(replace(self.config, target_dir=staging, run_results=None))
@@ -52,9 +52,7 @@ class InfoSchemaReportBuilder(ReportBuilder):
         artifacts = {
             "manifest": synth.build_manifest(self.reader, _read_json(target / "manifest.json")),
             "catalog": synth.build_catalog(self.reader, _read_json(target / "catalog.json")),
-            "run_results": synth.build_run_results(
-                self.reader, run_results or _read_json(target / "run_results.json")
-            ),
+            "run_results": synth.build_run_results(self.reader, run_results),
         }
         for name, artifact in artifacts.items():
             if artifact is not None:
