@@ -15,9 +15,13 @@ ARTIFACT_SOURCE = "info_schema"
 
 
 def _read_json(path: Path) -> "dict | None":
+    """An optional JSON enrichment artifact; ``None`` when absent or unusable (logged)."""
     try:
         return json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Ignoring %s as info_schema enrichment: %s", path, exc)
         return None
 
 
