@@ -16,6 +16,8 @@ def builder_for(config: DbDocsConfig) -> ReportBuilder:
     try:
         module = importlib.import_module(INFO_SCHEMA_BUILDER_MODULE)
     except ModuleNotFoundError as exc:
+        if exc.name != "duckdb":
+            raise
         raise DbDocsConfigError(
             "info_schema needs DuckDB: install it with `pip install 'dbdocs[info-schema]'`."
         ) from exc
