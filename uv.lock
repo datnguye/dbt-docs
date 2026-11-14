@@ -384,7 +384,7 @@ docs = [
 requires-dist = [
     { name = "artifact-parser", extras = ["dbt"], specifier = ">=1.1.0" },
     { name = "click", specifier = ">=8.1" },
-    { name = "dbterd", specifier = ">=1.35" },
+    { name = "dbterd", specifier = ">=1.35.1" },
     { name = "duckdb", marker = "extra == 'info-schema'", specifier = ">=1.1" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -558,7 +558,7 @@ wheels = [
 
 [[package]]
 name = "dbterd"
-version = "1.35.0"
+version = "1.35.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "artifact-parser" },
@@ -566,9 +566,9 @@ dependencies = [
     { name = "requests" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/86/e2/4831922d2ed99cdefe4512cf10d73063a62261fcf1f41354b7ea6dd6e7cc/dbterd-1.35.0.tar.gz", hash = "sha256:555d2119d605ba95534c224ff21e8d4741b6c4c6e9649b9d671927368c2bb43c", size = 72231, upload-time = "2026-11-14T09:28:43.345Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5b/f7/7c3fb8003dae42b1c584e473e09993e92954343f62f35259234e1c2ef8a4/dbterd-1.35.1.tar.gz", hash = "sha256:bfe24cadee8c55053e57e95640229e31763c815b2fb41f8ce0c1596322388b1e", size = 72406, upload-time = "2026-11-14T10:06:36.713Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/73/19/7b4833f8bb16492629dc3f03846e4264d92186e1b9decae5ca3a9bc45019/dbterd-1.35.0-py3-none-any.whl", hash = "sha256:43ca86da388cff67388be5956b87bb6b528270da965c813ae683c04bf0a03027", size = 91737, upload-time = "2026-11-14T09:28:41.713Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/5c/376adf9a10793a2ee3e19c7e3e5519d265725cbe332c659d906eced41b9e/dbterd-1.35.1-py3-none-any.whl", hash = "sha256:733799bf369fc954fa792e79af99a13ff66c4dc3faacb20beda81f8e09ad0bcb", size = 91892, upload-time = "2026-11-14T10:06:34.922Z" },
 ]
 
 [[package]]

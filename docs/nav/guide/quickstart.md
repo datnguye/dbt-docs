@@ -15,7 +15,8 @@ dbt docs generate           # writes target/manifest.json + target/catalog.json
 !!! tip "Why both files?"
     `manifest.json` carries the graph (models, sources, tests, refs, compiled
     SQL); `catalog.json` carries the column types pulled from your warehouse.
-    dbdocs needs both — the catalog is what makes `SELECT *` resolve in
+    The manifest is required; the catalog is optional but worth having — it's
+    what gives columns their warehouse types and makes `SELECT *` resolve in
     column-level lineage.
 
 !!! note "On dbt 2.0?"
