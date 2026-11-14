@@ -1507,7 +1507,7 @@ data = staged.build_data()
 - `dbdocs/sources/factory.py` — `builder_for`
 - `dbdocs/sources/info_schema/builder.py` — `InfoSchemaReportBuilder`
 - `dbdocs/sources/info_schema/reader.py` — `InfoSchemaReader`
-- `dbdocs/sources/info_schema/synth.py` — `build_manifest`, `build_catalog`, `build_run_results`, `column_lineage`, `_fill`
+- `dbdocs/sources/info_schema/synth.py` — `build_manifest`, `build_catalog`, `build_run_results`, `column_lineage`, `_READ_ONLY_EVOLUTIONS`, `_fill`; JSON-text columns decode through artifact-parser's `decode_json_column` (one definition — don't re-add a local copy)
 - `dbdocs/core/config.py` — `info_schema`, `info_schema_dir`, `info_schema_path`
 - `dbdocs/cli/main.py` — `info_schema_options`, `_apply_info_schema` (on `generate` and `deploy`)
 - `tests/fixtures/jaffle_shop_v2/` — dbt Fusion 2.0.11 `--generate-info-schema` output (parquet + manifest + run_results, no catalog)

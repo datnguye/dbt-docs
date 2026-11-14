@@ -118,12 +118,6 @@ def test_remaining_resource_kinds(fake_reader):
     assert manifest["metadata"]["quoting"] == {"schema": True}
 
 
-def test_json_helpers_pass_through_non_json():
-    assert synth._json('"{\\"a\\": 1}"') == {"a": 1}
-    assert synth._json("plain") == "plain"
-    assert synth._json(None) is None
-
-
 def _catalog_rows():
     return {
         "dbt.models": [

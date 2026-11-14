@@ -8,10 +8,11 @@ exception: warehouse ``catalog.json`` type, then ``data_type_actual``, then the
 declared type, then ``data_type_inferred``.
 """
 
-import json
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
+
+from artifact_parser.dbt_info_schema.base import decode_json_column
 
 from dbdocs.sources.info_schema.reader import InfoSchemaReader
 
@@ -42,16 +43,6 @@ _READ_ONLY_EVOLUTIONS = frozenset({"scan"})
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _json(value: Any) -> Any:
-    """Parse a JSON-encoded (possibly double-encoded) string; anything else passes through."""
-    while isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except json.JSONDecodeError:
-            return value
-    return value
 
 
 def _empty(value: Any) -> bool:
@@ -91,13 +82,13 @@ def _common(row: dict, kind: str) -> dict:
         "fqn": row.get("fqn"),
         "description": row.get("description"),
         "tags": row.get("tags"),
-        "meta": _json(row.get("meta")),
+        "meta": decode_json_column(row.get("meta")),
         "patch_path": f"{package}://{properties}" if properties else None,
     }
 
 
 def _config(row: dict) -> dict:
-    config = _json(row.get("config"))
+    config = decode_json_column(row.get("config"))
     config = dict(config) if isinstance(config, dict) else {}
     config["materialized"] = row.get("materialized")
     return _compact(config)
@@ -120,8 +111,8 @@ def _physical(row: dict, kind: str) -> dict:
         access=row.get("access"),
         group=row.get("group"),
         contract={"enforced": bool(row.get("contract_enforced"))},
-        version=_json(row.get("version")),
-        latest_version=_json(row.get("latest_version")),
+        version=decode_json_column(row.get("version")),
+        latest_version=decode_json_column(row.get("latest_version")),
         docs={"show": row["docs_show"]} if row.get("docs_show") is not None else None,
     )
     if kind == "test":
@@ -130,7 +121,7 @@ def _physical(row: dict, kind: str) -> dict:
                 {
                     "name": row.get("test_name"),
                     "namespace": row.get("test_definition_package"),
-                    "kwargs": _json(row.get("arguments")),
+                    "kwargs": decode_json_column(row.get("arguments")),
                 }
             ),
             column_name=row.get("column_name"),
@@ -147,7 +138,7 @@ def _source(row: dict, kind: str) -> dict:
         loader=row.get("loader"),
         identifier=row.get("identifier"),
         loaded_at_field=row.get("loaded_at_field"),
-        freshness=_json(row.get("freshness")),
+        freshness=decode_json_column(row.get("freshness")),
     )
     return record
 
@@ -156,10 +147,10 @@ def _unit_test(row: dict, kind: str) -> dict:
     record = _common(row, kind)
     record.update(
         model=row.get("model"),
-        given=_json(row.get("given")),
-        expect=_json(row.get("expect")),
-        overrides=_json(row.get("overrides")),
-        config=_json(row.get("config")),
+        given=decode_json_column(row.get("given")),
+        expect=decode_json_column(row.get("expect")),
+        overrides=decode_json_column(row.get("overrides")),
+        config=decode_json_column(row.get("config")),
     )
     return record
 
@@ -169,11 +160,11 @@ def _metric(row: dict, kind: str) -> dict:
     record.update(
         label=row.get("label"),
         type=row.get("metric_type"),
-        type_params=_json(row.get("type_params")),
-        filter=_json(row.get("metric_filter")),
+        type_params=decode_json_column(row.get("type_params")),
+        filter=decode_json_column(row.get("metric_filter")),
         time_granularity=row.get("time_granularity"),
         group=row.get("group"),
-        config=_json(row.get("config")),
+        config=decode_json_column(row.get("config")),
         created_at=row.get("created_at"),
     )
     return record
@@ -184,11 +175,11 @@ def _semantic_model(row: dict, kind: str) -> dict:
     record.update(
         label=row.get("label"),
         model=row.get("model"),
-        node_relation=_json(row.get("node_relation")),
+        node_relation=decode_json_column(row.get("node_relation")),
         primary_entity=row.get("primary_entity"),
-        defaults=_json(row.get("defaults")),
+        defaults=decode_json_column(row.get("defaults")),
         group=row.get("group"),
-        config=_json(row.get("config")),
+        config=decode_json_column(row.get("config")),
         created_at=row.get("created_at"),
     )
     return record
@@ -198,10 +189,10 @@ def _saved_query(row: dict, kind: str) -> dict:
     record = _common(row, kind)
     record.update(
         label=row.get("label"),
-        query_params=_json(row.get("query_params")),
-        exports=_json(row.get("exports")),
+        query_params=decode_json_column(row.get("query_params")),
+        exports=decode_json_column(row.get("exports")),
         group=row.get("group"),
-        config=_json(row.get("config")),
+        config=decode_json_column(row.get("config")),
         created_at=row.get("created_at"),
     )
     return record
@@ -215,7 +206,7 @@ def _exposure(row: dict, kind: str) -> dict:
         url=row.get("url"),
         maturity=row.get("maturity"),
         owner=_compact({"name": row.get("owner_name"), "email": row.get("owner_email")}),
-        config=_json(row.get("config")),
+        config=decode_json_column(row.get("config")),
         created_at=row.get("created_at"),
     )
     return record
@@ -229,7 +220,7 @@ def _group(row: dict, kind: str) -> dict:
 
 def _macro(row: dict, kind: str) -> dict:
     record = _common(row, kind)
-    arguments = _json(row.get("arguments"))
+    arguments = decode_json_column(row.get("arguments"))
     record.update(
         macro_sql=row.get("macro_sql"),
         depends_on={"macros": row.get("depends_on_macros")},
@@ -300,7 +291,7 @@ def _columns(reader: InfoSchemaReader) -> "dict[str, dict]":
                 "description": row.get("description"),
                 "data_type": row.get("data_type_declared"),
                 "tags": row.get("tags"),
-                "meta": _json(row.get("meta")),
+                "meta": decode_json_column(row.get("meta")),
                 "granularity": row.get("granularity"),
             }
         )
@@ -330,8 +321,8 @@ def _semantic_parts(reader: InfoSchemaReader) -> "dict[str, dict]":
                 "expr": row.get("expr"),
                 "create_metric": row.get("create_metric"),
                 "agg_time_dimension": row.get("agg_time_dimension"),
-                "agg_params": _json(row.get("agg_params")),
-                "non_additive_dimension": _json(row.get("non_additive_dimension")),
+                "agg_params": decode_json_column(row.get("agg_params")),
+                "non_additive_dimension": decode_json_column(row.get("non_additive_dimension")),
             }
         )
     for row in reader.table("dbt.semantic_dimensions"):
@@ -347,7 +338,7 @@ def _semantic_parts(reader: InfoSchemaReader) -> "dict[str, dict]":
                     "is_partition": row.get("is_partition"),
                     "type_params": {
                         "time_granularity": granularity,
-                        "validity_params": _json(row.get("validity_params")),
+                        "validity_params": decode_json_column(row.get("validity_params")),
                     }
                     if granularity
                     else None,
@@ -426,7 +417,7 @@ def build_manifest(reader: InfoSchemaReader, json_manifest: "dict | None" = None
                 "dbt_version": project.get("dbt_version"),
                 "project_name": project.get("project_name"),
                 "adapter_type": project.get("adapter_type"),
-                "quoting": _json(project.get("quoting")),
+                "quoting": decode_json_column(project.get("quoting")),
             }
         ),
         (json_manifest or {}).get("metadata") or {},
@@ -524,10 +515,10 @@ def _run_result(row: dict, json_result: "dict | None") -> dict:
             {
                 "unique_id": row["unique_id"],
                 "status": row.get("status"),
-                "timing": _json(row.get("timing")),
+                "timing": decode_json_column(row.get("timing")),
                 "thread_id": row.get("thread_id"),
                 "execution_time": row.get("execution_time"),
-                "adapter_response": _json(row.get("adapter_response")),
+                "adapter_response": decode_json_column(row.get("adapter_response")),
                 "message": row.get("message"),
                 "failures": row.get("failures"),
                 "compiled": row.get("compiled"),
