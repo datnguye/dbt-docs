@@ -1481,9 +1481,12 @@ string because v12 declares a string while dbt 2.0 emits an object. Parquet keep
 history, so `build_run_results` takes the latest invocation that contains tests rather
 than the last (possibly test-less) `run_results.json`.
 
-After the base build, `columnLineage` is replaced by `dbt.column_lineage` when it has rows
-(parent to child, remapped to `{"node.col": [{node, column}]}`); an empty table keeps the
-sqlglot result. `metadata.artifact_source` is `"info_schema"`. An explicit opt-in with a
+After the base build, `columnLineage` is replaced by `dbt.column_lineage` when it has value
+rows (parent to child, remapped to `{"node.col": [{node, column}]}`, deduplicated and sorted
+by `(node, column)`); an empty table keeps the sqlglot result. Only **value lineage** is
+kept: rows with `evolution = "scan"` (`_READ_ONLY_EVOLUTIONS` — a join, filter or grouping
+key that is read but doesn't feed the column's value) are dropped, so the lineage means the
+same thing as the sqlglot path's. Don't count `scan` rows as lineage. `metadata.artifact_source` is `"info_schema"`. An explicit opt-in with a
 missing directory or an unsupported `dbt.project.schema_version` raises
 `DbDocsConfigError` instead of silently falling back to JSON.
 

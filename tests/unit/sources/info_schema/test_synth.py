@@ -234,22 +234,25 @@ def test_run_results_fall_back_to_json_without_tests(fake_reader):
     assert synth.build_run_results(fake_reader({})) is None
 
 
-def test_column_lineage_maps_parent_to_child(fake_reader):
+def _lineage_row(parent, column, evolution):
+    return {
+        "child_node_unique_id": "model.p.b",
+        "child_column_name": "x",
+        "parent_node_unique_id": parent,
+        "parent_column_name": column,
+        "evolution": evolution,
+    }
+
+
+def test_column_lineage_keeps_value_sources_sorted_and_unique(fake_reader):
     reader = fake_reader(
         {
             "dbt.column_lineage": [
-                {
-                    "child_node_unique_id": "model.p.b",
-                    "child_column_name": "x",
-                    "parent_node_unique_id": "model.p.a",
-                    "parent_column_name": "y",
-                },
-                {
-                    "child_node_unique_id": "model.p.b",
-                    "child_column_name": "x",
-                    "parent_node_unique_id": "model.p.c",
-                    "parent_column_name": "z",
-                },
+                _lineage_row("model.p.c", "z", "mod"),
+                _lineage_row("model.p.a", "y", "copy"),
+                _lineage_row("model.p.a", "y", "copy"),
+                _lineage_row("model.p.a", "join_key", "scan"),
+                _lineage_row("model.p.d", "w", None),
             ]
         }
     )
@@ -257,8 +260,14 @@ def test_column_lineage_maps_parent_to_child(fake_reader):
         "model.p.b.x": [
             {"node": "model.p.a", "column": "y"},
             {"node": "model.p.c", "column": "z"},
+            {"node": "model.p.d", "column": "w"},
         ]
     }
+
+
+def test_column_lineage_of_only_scans_is_empty(fake_reader):
+    reader = fake_reader({"dbt.column_lineage": [_lineage_row("model.p.a", "k", "scan")]})
+    assert synth.column_lineage(reader) == {}
 
 
 def test_staged_artifacts_are_json_serializable(v2_parquet_only):

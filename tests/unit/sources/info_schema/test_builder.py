@@ -15,7 +15,7 @@ def test_build_with_json_enrichment(info_schema_config):
     assert len(data["erd"]["nodes"]) == 13
     assert len(data["erd"]["edges"]) == 3
     assert len(data["lineage"]["edges"]) == 64
-    assert sum(len(v) for v in data["columnLineage"].values()) == 182
+    assert sum(len(v) for v in data["columnLineage"].values()) == 87
     assert data["health"]["testResults"]["summary"]["pass"] == 30
 
 

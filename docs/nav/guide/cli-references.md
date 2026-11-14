@@ -41,7 +41,10 @@ win; `manifest.json` / `catalog.json` / `run_results.json`, when present, only
 fill gaps. Column types prefer the warehouse type from `catalog.json`, then the
 info schema's actual, declared, and inferred types. When the info schema carries
 column lineage (dbt Fusion with `--static-analysis strict`), it replaces the
-SQL-parsed lineage. The default JSON pipeline is untouched when the flag is off.
+SQL-parsed lineage. Only the columns that feed a value count as upstream; join,
+filter and grouping keys dbt marks as merely read are left out, just as the
+SQL-parsed lineage leaves them out. The default JSON pipeline is untouched when
+the flag is off.
 
 Outputs the SPA shell `index.html`, the external `dbdocs-data.json.gz` payload it
 fetches (plus a plain `dbdocs-data.json` debug dump), and a static

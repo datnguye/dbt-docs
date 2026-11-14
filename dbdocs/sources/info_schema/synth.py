@@ -37,6 +37,7 @@ _DEPENDENT_SECTIONS = (
 )
 _ALL_SECTIONS = _DEPENDENT_SECTIONS + ("macros", "docs", "groups")
 _COLUMN_DEFAULTS = {"description": "", "meta": {}, "tags": [], "constraints": []}
+_READ_ONLY_EVOLUTIONS = frozenset({"scan"})
 
 
 def _now() -> str:
@@ -593,11 +594,20 @@ def build_run_results(
 
 
 def column_lineage(reader: InfoSchemaReader) -> dict:
-    """``dbt.column_lineage`` as dbdocs' ``{"<node>.<column>": [{node, column}, ...]}``."""
-    lineage: dict[str, list[dict]] = defaultdict(list)
+    """``dbt.column_lineage`` value lineage as ``{"<node>.<column>": [{node, column}, ...]}``.
+
+    Rows whose ``evolution`` is in ``_READ_ONLY_EVOLUTIONS`` (``scan``: a join, filter
+    or grouping key that is read but does not feed the column's value) are dropped,
+    so the result means what the sqlglot lineage means. Refs are deduplicated and
+    sorted by ``(node, column)``.
+    """
+    refs: dict[str, set] = defaultdict(set)
     for row in reader.table("dbt.column_lineage"):
+        if row.get("evolution") in _READ_ONLY_EVOLUTIONS:
+            continue
         key = f"{row['child_node_unique_id']}.{row['child_column_name']}"
-        lineage[key].append(
-            {"node": row["parent_node_unique_id"], "column": row["parent_column_name"]}
-        )
-    return dict(lineage)
+        refs[key].add((row["parent_node_unique_id"], row["parent_column_name"]))
+    return {
+        key: [{"node": node, "column": column} for node, column in sorted(pairs)]
+        for key, pairs in refs.items()
+    }

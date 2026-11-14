@@ -31,8 +31,8 @@ dbt docs generate           # writes target/manifest.json + target/catalog.json
     ```
 
     With dbt Fusion, add `--static-analysis strict` to the dbt command and the
-    info schema carries column-level lineage computed by dbt itself — usually far
-    more of it than dbdocs can reverse-engineer from SQL. Any JSON artifacts lying
+    info schema carries column-level lineage computed by dbt itself, which tends
+    to see further than dbdocs can by reverse-engineering SQL. Any JSON artifacts lying
     around still help: they fill whatever the parquet leaves blank. See the
     [CLI Reference](./cli-references.md#dbdocs-generate) for how the two merge.
 
