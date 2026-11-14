@@ -371,3 +371,39 @@ def fake_catalog():
             )
         },
     )
+
+
+JAFFLE_V2_ARTIFACTS = FIXTURES_DIR / "jaffle_shop_v2"
+
+
+@pytest.fixture
+def v2_target(tmp_path):
+    """A copy of the dbt 2.0 fixture: parquet info schema plus its JSON artifacts."""
+    target = tmp_path / "v2_target"
+    shutil.copytree(JAFFLE_V2_ARTIFACTS, target)
+    return target
+
+
+@pytest.fixture
+def v2_parquet_only(tmp_path):
+    """A copy of the dbt 2.0 fixture holding only the parquet info schema."""
+    target = tmp_path / "v2_parquet"
+    shutil.copytree(JAFFLE_V2_ARTIFACTS / "info_schema", target / "info_schema")
+    return target
+
+
+@pytest.fixture
+def info_schema_config(v2_target, tmp_path):
+    return DbDocsConfig(
+        target_dir=str(v2_target), output_dir=str(tmp_path / "site"), info_schema=True
+    )
+
+
+def _make_reader(tables):
+    return SimpleNamespace(table=lambda name: tables.get(name, []))
+
+
+@pytest.fixture
+def fake_reader():
+    """Factory for a reader stand-in serving the given ``{table: rows}``."""
+    return _make_reader

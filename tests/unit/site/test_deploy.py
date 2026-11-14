@@ -8,6 +8,7 @@ import pytest
 from dbdocs.core.config import DbDocsConfig
 from dbdocs.core.exceptions import DeployError
 from dbdocs.site import deploy as deploy_mod
+from dbdocs.site.builder import ReportBuilder
 
 
 @pytest.fixture
@@ -20,7 +21,7 @@ def patched_builder(monkeypatch):
         (out / "index.html").write_text("<html></html>", encoding="utf-8")
         return str(out)
 
-    monkeypatch.setattr(deploy_mod.ReportBuilder, "generate", _fake_generate)
+    monkeypatch.setattr(ReportBuilder, "generate", _fake_generate)
 
 
 def test_deploy_creates_version_dir_and_index(patched_builder, tmp_path):
@@ -182,7 +183,7 @@ def test_deploy_passes_versioned_true_to_generate(tmp_path, monkeypatch):
         (out / "index.html").write_text("<html></html>", encoding="utf-8")
         return str(out)
 
-    monkeypatch.setattr(deploy_mod.ReportBuilder, "generate", _fake_generate)
+    monkeypatch.setattr(ReportBuilder, "generate", _fake_generate)
     cfg = DbDocsConfig(output_dir=str(tmp_path / "site"))
     deploy_mod.deploy(cfg, version="1.0")
     assert calls[0]["versioned"] is True

@@ -71,6 +71,9 @@ authoritative; grep it.
   - [Collapsible node-page sections (`nodeSection`)](#collapsible-node-page-sections-nodesection)
     - [Theory](#theory-19)
     - [Example](#example-19)
+  - [Opt-in artifact-source plugin (info\_schema)](#opt-in-artifact-source-plugin-info_schema)
+    - [Theory](#theory-20)
+    - [Example](#example-20)
 
 ## Pipeline-stage package layout
 
@@ -1447,3 +1450,57 @@ All other renderer types follow the same open-if-non-empty / always-open-for-pri
 - `dbdocs/site/bundle/assets/js/ui/ui.js` — `nodeSection`, `sectionLinkButton`, `_getSectionOpen`, `_setSectionOpen`, `_loadSectionState`, `_saveSectionState`, `expandCollapseBtn`, `focusSection`, `_forceNodeSectionOpen`, `_initSectionObserver` (scroll-spy + `sectionObserverRefresh`), `_depSection`, `_appendDepsSections`, `_physicalDetailsSection`, `_columnsSection`, `_testsSection`, `_erdSection`, `_sqlSection`, `renderPhysicalNode`, `renderCodeOnlyNode`, `renderMetricNode`, `renderSemanticModelNode`, `renderSavedQueryNode`, `renderUnitTestNode`, `renderExposureNode`
 - `dbdocs/site/bundle/assets/js/service/service.js` — `columnCount`, `macroCount`
 - `dbdocs/site/bundle/assets/css/style.css` — `details.node-section`, `.node-section-summary`, `.node-section-title`, `.node-section-count`, `.node-section-summary-actions`, `.section-link-btn`, `.section-in-view`, `.node-section-body`, `.expand-collapse-btn`, `.erd-section-host`, `@media print`
+
+## Opt-in artifact-source plugin (info\_schema)
+
+### Theory
+
+dbt 2.0 writes a versioned parquet information schema (`target/info_schema/v1/*.parquet`,
+public contract `dbt.*` + `dbt_rt.*`). `--info-schema` (or `info_schema: true`) makes it
+the **base** artifact source, with any `manifest.json` / `catalog.json` /
+`run_results.json` present as **enrichment**. The plugin does not add a second render
+path: it synthesizes standard manifest v12 / catalog v1 / run_results v6 into a temp
+staging dir and runs the **unchanged** `ReportBuilder.build_data` on it, so every
+extractor, dbterd and the API tree stay untouched. `builder_for(config)`
+(`dbdocs/sources/factory.py`) is the only switch: flag off returns a plain
+`ReportBuilder` (same code path, same output); flag on loads
+`dbdocs.sources.info_schema.builder` through `importlib.import_module`, so DuckDB stays an
+optional extra (`dbdocs[info-schema]`) without an in-function import, and a
+`ModuleNotFoundError` becomes `DbDocsConfigError`.
+
+One merge rule, applied per record and field in `synth.py`: the parquet set decides
+which records exist, a non-empty parquet value wins, and the matching JSON record fills
+what parquet left empty. Column types are the exception: catalog.json type, then
+`data_type_actual`, then the declared type, then `data_type_inferred` (Arrow form such as
+`Int64`, weaker than a warehouse type). Staged unit-test checksums are flattened to a
+string because v12 declares a string while dbt 2.0 emits an object. Parquet keeps run
+history, so `build_run_results` takes the latest invocation that contains tests rather
+than the last (possibly test-less) `run_results.json`.
+
+After the base build, `columnLineage` is replaced by `dbt.column_lineage` when it has rows
+(parent to child, remapped to `{"node.col": [{node, column}]}`); an empty table keeps the
+sqlglot result. `metadata.artifact_source` is `"info_schema"`. An explicit opt-in with a
+missing directory or an unsupported `dbt.project.schema_version` raises
+`DbDocsConfigError` instead of silently falling back to JSON.
+
+### Example
+
+```python
+# dbdocs/sources/factory.py
+if not config.info_schema:
+    return ReportBuilder(config)
+module = importlib.import_module(INFO_SCHEMA_BUILDER_MODULE)
+return module.InfoSchemaReportBuilder(config)
+
+# dbdocs/sources/info_schema/builder.py
+staged = ReportBuilder(replace(self.config, target_dir=staging, run_results=None))
+data = staged.build_data()
+```
+
+- `dbdocs/sources/factory.py` — `builder_for`
+- `dbdocs/sources/info_schema/builder.py` — `InfoSchemaReportBuilder`
+- `dbdocs/sources/info_schema/reader.py` — `InfoSchemaReader`
+- `dbdocs/sources/info_schema/synth.py` — `build_manifest`, `build_catalog`, `build_run_results`, `column_lineage`, `_fill`
+- `dbdocs/core/config.py` — `info_schema`, `info_schema_dir`, `info_schema_path`
+- `dbdocs/cli/main.py` — `info_schema_options`, `_apply_info_schema` (on `generate` and `deploy`)
+- `tests/fixtures/jaffle_shop_v2/` — dbt Fusion 2.0.11 `--generate-info-schema` output (parquet + manifest + run_results, no catalog)

@@ -23,6 +23,9 @@ dependencies = [
   "sqlglot>=25",
 ]
 
+[project.optional-dependencies]
+info-schema = ["duckdb>=1.1"]
+
 [project.urls]
 Homepage = "https://github.com/datnguye/dbt-docs"
 Repository = "https://github.com/datnguye/dbt-docs"
@@ -58,6 +61,7 @@ dev = [
   "dbt-postgres>=1.5",
   "pdoc>=14.4.0",
   "jsonschema>=4.20",
+  "duckdb>=1.1",
 ]
 docs = [
   "mkdocs>=1.6,<2.0",
