@@ -8,6 +8,8 @@ carries everything the JSON artifacts did, and on dbt Fusion quite a bit more.
 dbdocs works with dbt 2.0 either way. This page explains the two paths and walks
 you through switching dbdocs onto the information schema.
 
+![dbt Fusion writes the info schema with strict static analysis; dbdocs, with info_schema: true, builds and serves the site from it](../../assets/img/dbt-2-info-schema.gif)
+
 ## Two ways to read a dbt 2.0 project
 
 | | Default (JSON artifacts) | Info schema (opt-in) |

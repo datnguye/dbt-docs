@@ -47,11 +47,19 @@ Requires Python 3.10+.
 
 ```bash
 dbt docs generate     # writes target/manifest.json + target/catalog.json
-dbdocs generate       # builds ./site/ with index.html + dbdocs-data.json.gz
+dbdocs generate       # builds target/site/ with index.html + dbdocs-data.json.gz
 dbdocs serve          # static http server on http://127.0.0.1:8000
 ```
 
 The site must be served over HTTP (not opened as a local file) because it fetches the data payload at load time. `dbdocs serve` handles that locally; any static host works for deployment.
+
+### On dbt 2.0
+
+dbt 2.0 stops writing `catalog.json` and can write a typed parquet **information schema** instead — on dbt Fusion with `--static-analysis strict`, complete with column types and dbt's own column-level lineage. dbdocs builds from either; to read the info schema, `pip install "dbdocs[info-schema]"` and set `info_schema: true` in `dbdocs.yml`:
+
+![dbt Fusion writes the info schema, dbdocs builds and serves the site from it](docs/assets/img/dbt-2-info-schema.gif)
+
+The [dbt 2.0 & Info Schema](https://dbdocs.datnguye.me/latest/nav/guide/dbt-2-info-schema.html) guide walks through it.
 
 Full walkthrough, configuration, and architecture live in the **[documentation](https://dbdocs.datnguye.me/)**.
 

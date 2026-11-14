@@ -11,6 +11,7 @@ copyright: Copyright &copy; 2024-2026 Dat Nguyen
 
 exclude_docs: |
   dbdocs-demo.yml
+  scripts/
 
 nav:
   - dbdocs:
