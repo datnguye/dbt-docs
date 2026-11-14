@@ -22,19 +22,17 @@ dbt docs generate           # writes target/manifest.json + target/catalog.json
     dbt 2.0's `docs generate` no longer writes `catalog.json`. dbdocs still
     builds from `manifest.json` alone, just without warehouse column types and
     with thinner column-level lineage. For the full picture, have dbt write its
-    parquet information schema and let dbdocs read that instead:
+    parquet information schema and switch dbdocs onto it in `dbdocs.yml`:
 
     ```bash
     pip install "dbdocs[info-schema]"
     dbt build --generate-info-schema        # writes target/info_schema/v1/
-    dbdocs generate --info-schema
+    echo "info_schema: true" >> dbdocs.yml
     ```
 
-    With dbt Fusion, add `--static-analysis strict` to the dbt command and the
-    info schema carries column-level lineage computed by dbt itself, which tends
-    to see further than dbdocs can by reverse-engineering SQL. Any JSON artifacts lying
-    around still help: they fill whatever the parquet leaves blank. See the
-    [CLI Reference](./cli-references.md#dbdocs-generate) for how the two merge.
+    [dbt 2.0 & Info Schema](./dbt-2-info-schema.md) walks through it: dbt Fusion
+    vs dbt Core, how the parquet and JSON artifacts combine, and what to do when
+    something looks off.
 
 ## 2. Generate the site
 

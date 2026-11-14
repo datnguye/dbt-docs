@@ -36,7 +36,9 @@ dbdocs generate --info-schema
 | `--info-schema / --no-info-schema` | Read dbt 2.0's parquet information schema as the base, with any JSON artifacts as enrichment (default off). Needs `pip install "dbdocs[info-schema]"` and a dbt run with `--generate-info-schema`. |
 | `--info-schema-dir`  | The info-schema directory (default `<target_dir>/info_schema/v1`). |
 
-With `--info-schema`, the parquet decides which resources exist and its values
+To make it the default rather than a per-run flag, set `info_schema: true` in
+`dbdocs.yml` — see [dbt 2.0 & Info Schema](./dbt-2-info-schema.md) for the full
+walkthrough. With `--info-schema`, the parquet decides which resources exist and its values
 win; `manifest.json` / `catalog.json` / `run_results.json`, when present, only
 fill gaps. Column types prefer the warehouse type from `catalog.json`, then the
 info schema's actual, declared, and inferred types. When the info schema carries
