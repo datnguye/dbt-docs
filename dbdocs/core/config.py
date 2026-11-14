@@ -81,6 +81,13 @@ class DbDocsConfig:
     #: dotted import path whose ``register_rule`` calls add custom rules). Entry
     #: points under ``dbdocs.health_rules`` are also discovered automatically.
     health: dict = field(default_factory=dict)
+    #: Opt in to reading dbt 2.0's parquet information schema as the base artifact
+    #: source (``manifest.json`` / ``catalog.json`` / ``run_results.json`` in
+    #: ``target_dir`` then only enrich it). Needs ``dbdocs[info-schema]``.
+    info_schema: bool = False
+    #: Directory holding the information-schema parquet files; ``None`` ⇒
+    #: ``<target_dir>/info_schema/v1``.
+    info_schema_dir: "str | None" = None
     #: The pinned About link shows by default; set false to hide it.
     show_about: bool = True
     #: Links rendered on the About page as external CTA buttons.  Each entry is a
@@ -129,6 +136,8 @@ class DbDocsConfig:
         "favicon",
         "run_results",
         "health",
+        "info_schema",
+        "info_schema_dir",
     )
 
     def render_context(self) -> dict:
@@ -164,3 +173,10 @@ class DbDocsConfig:
         A relative path that would escape the cwd raises ``DbDocsConfigError``.
         """
         return str(_resolve_within_cwd(self.output_dir, "output_dir"))
+
+    @property
+    def info_schema_path(self) -> str:
+        """Directory of the information-schema parquet files (see ``info_schema_dir``)."""
+        if self.info_schema_dir:
+            return str(_resolve_within_cwd(self.info_schema_dir, "info_schema_dir"))
+        return str(Path(self.target_path) / "info_schema" / "v1")

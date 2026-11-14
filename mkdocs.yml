@@ -11,6 +11,7 @@ copyright: Copyright &copy; 2024-2026 Dat Nguyen
 
 exclude_docs: |
   dbdocs-demo.yml
+  scripts/
 
 nav:
   - dbdocs:
@@ -20,6 +21,7 @@ nav:
       - Quickstart: nav/guide/quickstart.md
       - How It Works: nav/guide/how-it-works.md
       - Configuration: nav/guide/configuration.md
+      - dbt 2.0 & Info Schema: nav/guide/dbt-2-info-schema.md
       - Full-text Search: nav/guide/search.md
       - Versioned Deploy: nav/guide/versioned-deploy.md
       - REST API: nav/guide/rest-api.md

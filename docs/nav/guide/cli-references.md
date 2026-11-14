@@ -25,6 +25,7 @@ Build the site from your dbt artifacts.
 dbdocs generate
 dbdocs generate -o public --dialect snowflake
 dbdocs generate --run-results target/run_results.json
+dbdocs generate --info-schema
 ```
 
 | Option               | Description                                            |
@@ -32,6 +33,20 @@ dbdocs generate --run-results target/run_results.json
 | `-o, --output-dir`   | Where to write the site (overrides config).            |
 | `--dialect`          | SQL dialect for column lineage (overrides `adapter_type`). |
 | `--run-results`      | Path to `run_results.json` for the Health Check (default `<target_dir>/run_results.json`). Absent or unparseable, the Health Check is silently skipped. |
+| `--info-schema / --no-info-schema` | Read dbt 2.0's parquet information schema as the base, with any JSON artifacts as enrichment (default off). Needs `pip install "dbdocs[info-schema]"` and a dbt run with `--generate-info-schema`. |
+| `--info-schema-dir`  | The info-schema directory (default `<target_dir>/info_schema/v1`). |
+
+To make it the default rather than a per-run flag, set `info_schema: true` in
+`dbdocs.yml` — see [dbt 2.0 & Info Schema](./dbt-2-info-schema.md) for the full
+walkthrough. With `--info-schema`, the parquet decides which resources exist and its values
+win; `manifest.json` / `catalog.json` / `run_results.json`, when present, only
+fill gaps. Column types prefer the warehouse type from `catalog.json`, then the
+info schema's actual, declared, and inferred types. When the info schema carries
+column lineage (dbt Fusion with `--static-analysis strict`), it replaces the
+SQL-parsed lineage. Only the columns that feed a value count as upstream; join,
+filter and grouping keys dbt marks as merely read are left out, just as the
+SQL-parsed lineage leaves them out. The default JSON pipeline is untouched when
+the flag is off.
 
 Outputs the SPA shell `index.html`, the external `dbdocs-data.json.gz` payload it
 fetches (plus a plain `dbdocs-data.json` debug dump), and a static
@@ -71,6 +86,8 @@ dbdocs deploy --version 1.2 --alias latest --push
 | `--title`             | the version| Display title for this version.                   |
 | `--delete`            | off        | Delete this version instead of deploying it.      |
 | `--push / --no-push`  | `--no-push`| Publish to the `gh-pages` branch (opt-in).        |
+| `--info-schema / --no-info-schema` | off | Build from the dbt 2.0 info schema (see `generate`). |
+| `--info-schema-dir`   | `<target_dir>/info_schema/v1` | The info-schema directory. |
 
 `--version` and `--alias` must match `[A-Za-z0-9._-]+` and cannot be `.` or
 `..` — no spaces, slashes, or path separators. Invalid values raise a

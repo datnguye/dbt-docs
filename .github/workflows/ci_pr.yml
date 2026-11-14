@@ -54,7 +54,7 @@ jobs:
         run: uv run pytest --cov=dbdocs --cov-report=term-missing --cov-fail-under=100
 
   e2e:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
 

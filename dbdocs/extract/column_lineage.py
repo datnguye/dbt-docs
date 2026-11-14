@@ -61,10 +61,11 @@ def _leaf_columns(root: Node, relation_to_node: dict) -> list:
     """Collect distinct upstream ``{node, column}`` leaves of a lineage tree.
 
     A leaf is a node whose source is a real ``Table`` (not a CTE/subquery scope)
-    that maps back to a dbt node. The root itself is skipped.
+    that maps back to a dbt node. The root itself is skipped. Leaves are sorted
+    by ``(node, column)``: the tree's walk order follows sqlglot's internal set
+    iteration, which varies with ``PYTHONHASHSEED``.
     """
-    seen = set()
-    upstream = []
+    leaves = set()
     for node in root.walk():
         if node is root:
             continue
@@ -72,15 +73,9 @@ def _leaf_columns(root: Node, relation_to_node: dict) -> list:
         if not isinstance(source, exp.Table):
             continue
         mapped = _map_table(source, relation_to_node)
-        if mapped is None:
-            continue
-        column = node_name(node.name)
-        key = (mapped, column)
-        if key in seen:
-            continue
-        seen.add(key)
-        upstream.append({"node": mapped, "column": column})
-    return upstream
+        if mapped is not None:
+            leaves.add((mapped, node_name(node.name)))
+    return [{"node": mapped, "column": column} for mapped, column in sorted(leaves)]
 
 
 def _extract_model_columns(

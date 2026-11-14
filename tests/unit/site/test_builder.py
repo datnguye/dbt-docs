@@ -1095,3 +1095,14 @@ def test_generate_sets_versioned_true_when_requested(
     out = Path(ReportBuilder(config).generate(versioned=True))
     data = json.loads((out / "dbdocs-data.json").read_text(encoding="utf-8"))
     assert data["metadata"]["versioned"] is True
+
+
+def test_default_path_builds_a_catalog_less_dbt2_project(config, v2_target):
+    config.target_dir = str(v2_target)
+    data = ReportBuilder(config).build_data()
+    assert not (v2_target / "catalog.json").exists()
+    assert "artifact_source" not in data["metadata"]
+    assert len(data["nodes"]) == 60
+    assert len(data["erd"]["nodes"]) == 13
+    assert len(data["erd"]["edges"]) == 3
+    assert data["health"]["testResults"]["summary"]["pass"] == 30

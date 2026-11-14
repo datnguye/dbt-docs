@@ -113,6 +113,13 @@ default_version: latest
 #   # ship rules via the `dbdocs.health_rules` entry-point group.
 #   # rules_module: my_project.dbdocs_health_rules
 
+# Opt in to dbt 2.0's parquet information schema as the base artifact source
+# (needs `pip install 'dbdocs[info-schema]'`). manifest.json / catalog.json /
+# run_results.json in target_dir then only enrich it. Also --info-schema on the CLI.
+# info_schema: false
+# Directory of the parquet files; default <target_dir>/info_schema/v1.
+# info_schema_dir: target/info_schema/v1
+
 # The pinned About link shows by default; set false to hide it.
 show_about: true
 

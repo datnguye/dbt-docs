@@ -210,3 +210,19 @@ def test_about_links_flows_into_render_context():
     links = [{"label": "Sponsor", "href": "https://example.com"}]
     context = DbDocsConfig(about_links=links).render_context()
     assert context["about_links"] == links
+
+
+def test_info_schema_fields_are_build_control():
+    context = DbDocsConfig(info_schema=True, info_schema_dir="x").render_context()
+    assert "info_schema" not in context
+    assert "info_schema_dir" not in context
+
+
+def test_info_schema_path_defaults_under_target(tmp_path):
+    config = DbDocsConfig(target_dir=str(tmp_path))
+    assert config.info_schema_path == str(tmp_path / "info_schema" / "v1")
+
+
+def test_info_schema_path_honours_override(tmp_path):
+    config = DbDocsConfig(info_schema_dir=str(tmp_path / "custom"))
+    assert config.info_schema_path == str(tmp_path / "custom")

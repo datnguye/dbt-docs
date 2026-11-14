@@ -165,37 +165,48 @@ def test_schema_from_catalog_skips_catalog_node_without_manifest_entity(fake_man
     assert "customers" in extractor.schema["db"]["analytics"]
 
 
+_KNOWN_TABLE = exp.Table(
+    this=exp.to_identifier("raw_customers"),
+    db=exp.to_identifier("raw"),
+    catalog=exp.to_identifier("db"),
+)
+
+
+def _leaf(name, table):
+    return SimpleNamespace(name=name, source=table)
+
+
+def _tree(leaves):
+    root = SimpleNamespace(name="root", source=SimpleNamespace())
+    root.walk = lambda: iter([root, *leaves])
+    return root
+
+
 def test_leaf_columns_dedupes_and_skips_unmapped(fake_manifest, fake_catalog):
     extractor = ColumnLineageExtractor(fake_manifest, fake_catalog, dialect="snowflake")
-    root = SimpleNamespace(name="root", source=SimpleNamespace())
-
-    def make(name, table):
-        return SimpleNamespace(name=name, source=table)
-
-    known = exp.Table(
-        this=exp.to_identifier("raw_customers"),
-        db=exp.to_identifier("raw"),
-        catalog=exp.to_identifier("db"),
-    )
     unknown = exp.Table(
         this=exp.to_identifier("nope"), db=exp.to_identifier("x"), catalog=exp.to_identifier("y")
     )
-    not_a_table = SimpleNamespace()
-    leaves = [
-        make("t.id", known),
-        make("t.id", known),
-        make("u.x", unknown),
-        make("v.y", not_a_table),
-    ]
-
-    def walk():
-        yield root
-        yield from leaves
-
-    root.walk = walk
+    root = _tree(
+        [
+            _leaf("t.id", _KNOWN_TABLE),
+            _leaf("t.id", _KNOWN_TABLE),
+            _leaf("u.x", unknown),
+            _leaf("v.y", SimpleNamespace()),
+        ]
+    )
     result = column_lineage._leaf_columns(root, extractor._relation_to_node)
-    # The known table appears once (deduped); unknown + non-table dropped.
     assert result == [{"node": "source.shop.ecom.raw_customers", "column": "id"}]
+
+
+def test_leaf_columns_order_is_independent_of_walk_order(fake_manifest, fake_catalog):
+    extractor = ColumnLineageExtractor(fake_manifest, fake_catalog, dialect="snowflake")
+    names = ["t.name", "t.id", "t.email"]
+    forward = _tree([_leaf(n, _KNOWN_TABLE) for n in names])
+    backward = _tree([_leaf(n, _KNOWN_TABLE) for n in reversed(names)])
+    result = column_lineage._leaf_columns(forward, extractor._relation_to_node)
+    assert result == column_lineage._leaf_columns(backward, extractor._relation_to_node)
+    assert [r["column"] for r in result] == ["email", "id", "name"]
 
 
 def test_module_logger_is_dbdocs():
