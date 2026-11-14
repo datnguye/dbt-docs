@@ -19,6 +19,8 @@ from typing import Any
 
 from dbterd.helpers import file
 
+from dbdocs.core.log import logger
+
 #: Bucket label used when a node/source has no database or schema set.
 UNKNOWN = "_unknown"
 
@@ -54,10 +56,23 @@ def artifact_version(target_path: str, artifact: str) -> "int | None":
 
 
 def load_artifacts(target_path: str) -> "tuple[Any, Any]":
-    """Return the dbterd-parsed ``(manifest, catalog)`` for a dbt target dir."""
+    """Return the dbterd-parsed ``(manifest, catalog)`` for a dbt target dir.
+
+    ``catalog.json`` is optional (dbt 2.0's ``docs generate`` does not write it):
+    when absent, ``catalog`` is ``None`` and every consumer falls back to the
+    manifest — columns lose their warehouse type and column-level lineage can't
+    resolve ``SELECT *`` / unqualified columns.
+    """
     manifest = file.read_manifest(
         path=target_path, version=artifact_version(target_path, "manifest")
     )
+    if not (Path(target_path) / "catalog.json").is_file():
+        logger.warning(
+            "No catalog.json in %s — building from the manifest only "
+            "(no warehouse column types; reduced column-level lineage).",
+            target_path,
+        )
+        return manifest, None
     catalog = file.read_catalog(path=target_path, version=artifact_version(target_path, "catalog"))
     return manifest, catalog
 

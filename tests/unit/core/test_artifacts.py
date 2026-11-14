@@ -1,5 +1,7 @@
 from types import SimpleNamespace
 
+import pytest
+
 from dbdocs.core import artifacts
 
 
@@ -58,17 +60,21 @@ def test_public_constants_exported():
     assert artifacts.COLLECTION_ATTRS["metric."] == "metrics"
 
 
-def test_load_artifacts_uses_dbterd(monkeypatch):
-    calls = {}
+@pytest.fixture
+def fake_dbterd(monkeypatch):
     monkeypatch.setattr(artifacts, "artifact_version", lambda path, artifact: 12)
-    monkeypatch.setattr(
-        artifacts.file,
-        "read_manifest",
-        lambda path, version: calls.setdefault("m", (path, version)),
-    )
-    monkeypatch.setattr(
-        artifacts.file, "read_catalog", lambda path, version: calls.setdefault("c", (path, version))
-    )
-    manifest, catalog = artifacts.load_artifacts("/tmp/target")
-    assert manifest == ("/tmp/target", 12)
-    assert catalog == ("/tmp/target", 12)
+    monkeypatch.setattr(artifacts.file, "read_manifest", lambda path, version: ("m", path, version))
+    monkeypatch.setattr(artifacts.file, "read_catalog", lambda path, version: ("c", path, version))
+
+
+def test_load_artifacts_uses_dbterd(fake_dbterd, tmp_path):
+    (tmp_path / "catalog.json").write_text("{}", encoding="utf-8")
+    manifest, catalog = artifacts.load_artifacts(str(tmp_path))
+    assert manifest == ("m", str(tmp_path), 12)
+    assert catalog == ("c", str(tmp_path), 12)
+
+
+def test_load_artifacts_without_catalog_returns_none(fake_dbterd, tmp_path):
+    manifest, catalog = artifacts.load_artifacts(str(tmp_path))
+    assert manifest == ("m", str(tmp_path), 12)
+    assert catalog is None

@@ -35,14 +35,14 @@ wheels = [
 
 [[package]]
 name = "artifact-parser"
-version = "1.0.0"
+version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e5/d3/b8523c74bf12393a7e659b855cf3b42bb2b379acd64c9a95e0d2c6d51579/artifact_parser-1.0.0.tar.gz", hash = "sha256:73864c6b2bdcf761adcb4217125bb997d8f1b635f395d080fb4883623e5ac592", size = 201065, upload-time = "2026-06-12T17:05:12.826Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/b2/89/659857b74d0f9803c837c9aac0f37bb2d6b34a0a05a95e9c3920278ff120/artifact_parser-1.0.1.tar.gz", hash = "sha256:7a8f76250fbef1143e886d062de13b892c17ac9e48fcd4c622ad9f7324fdde2f", size = 201638, upload-time = "2026-08-10T08:38:04.856Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2a/41/19ecd43052c8185ebdefbf41f5a16fbf94348b7b3a4387d0db2752b7d5c4/artifact_parser-1.0.0-py3-none-any.whl", hash = "sha256:47a827e3dffc087ef04efb1119a7118018a1fb1a6fa508162e07e511518ac1d9", size = 261221, upload-time = "2026-06-12T17:05:11.025Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/7f/14354cf482af3c16b11d48b721b982749c3dbed148e2b68edab7da986a01/artifact_parser-1.0.1-py3-none-any.whl", hash = "sha256:bb269eae6e6782668ae22f2a275aefdd9b98c3e05d77de4aca6a4c6cbaa4b3b8", size = 261810, upload-time = "2026-08-10T08:38:03.405Z" },
 ]
 
 [[package]]
@@ -374,9 +374,9 @@ docs = [
 
 [package.metadata]
 requires-dist = [
-    { name = "artifact-parser", extras = ["dbt"], specifier = ">=1.0.0" },
+    { name = "artifact-parser", extras = ["dbt"], specifier = ">=1.0.1" },
     { name = "click", specifier = ">=8.1" },
-    { name = "dbterd", specifier = ">=1.28" },
+    { name = "dbterd", specifier = ">=1.34" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "sqlglot", specifier = ">=25" },
@@ -547,7 +547,7 @@ wheels = [
 
 [[package]]
 name = "dbterd"
-version = "1.28.0"
+version = "1.34.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "artifact-parser" },
@@ -555,9 +555,9 @@ dependencies = [
     { name = "requests" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/06/09/210b0fd41a1a76ebd37d7f9dab764aee0c9f9e49ada55dd8710d23065b8c/dbterd-1.28.0.tar.gz", hash = "sha256:038b76206ce17d117f9628a12e18ab84d347ba738f9a211a0cef11539ea45967", size = 64499, upload-time = "2026-06-14T14:21:15.976Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/49/aa/fa727a5d239dfd1ae3c2454846ab659196a17416dba4d463822fafe51e13/dbterd-1.34.0.tar.gz", hash = "sha256:1f0a2b0e5e561ad4f0eb1ca88febf299ec33bd4394865e7c171a053ffa6666ae", size = 68156, upload-time = "2026-11-06T04:27:34.745Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e0/15/0beb8bbb07eac3048ce39a0bd2250ee6948d951d5f718d41bdd0c3fca8b1/dbterd-1.28.0-py3-none-any.whl", hash = "sha256:aa190d8ccf3d2de3107cf41b0c864f57b237bf44e37dcaff185ff1d46229ca18", size = 83797, upload-time = "2026-06-14T14:21:14.54Z" },
+    { url = "https://files.pythonhosted.org/packages/52/a2/439995c68a08e3bc2535a87215a4e8ab6b44b3c7f667666e10eea578d47a/dbterd-1.34.0-py3-none-any.whl", hash = "sha256:a1d945eb51ccc70b508b411e0cf2cb5b4e0433f788cc86e823639a5af8d3e9a5", size = 87723, upload-time = "2026-11-06T04:27:33.006Z" },
 ]
 
 [[package]]
