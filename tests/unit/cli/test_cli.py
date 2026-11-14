@@ -1,3 +1,5 @@
+from functools import partial
+
 from click.testing import CliRunner
 
 import dbdocs.cli.main as cli_main
@@ -6,6 +8,21 @@ from dbdocs.core.config import DbDocsConfig
 from dbdocs.core.exceptions import DbDocsConfigError, DeployError, LineageError
 from dbdocs.main import main
 from dbdocs.site.builder import ReportBuilder
+
+
+def _fake_deploy(seen, config, version, alias, push, title, builder):
+    seen.update(version=version, alias=alias, push=push, title=title, builder=builder)
+    return "/site/1.2"
+
+
+def _failing_deploy(config, **kwargs):
+    raise DeployError("push failed")
+
+
+def _fake_builder_for(seen, config):
+    seen["config"] = config
+    seen["builder"] = ReportBuilder(config)
+    return seen["builder"]
 
 
 def test_version_flag_reports_version():
@@ -137,16 +154,12 @@ def test_generate_logs_version_banner(monkeypatch):
 
 def test_deploy_command(monkeypatch):
     seen = {}
-
-    def _deploy(config, version, alias, push, title):
-        seen.update(version=version, alias=alias, push=push, title=title)
-        return "/site/1.2"
-
-    monkeypatch.setattr(cli_main.deploy_module, "deploy", _deploy)
+    monkeypatch.setattr(cli_main.deploy_module, "deploy", partial(_fake_deploy, seen))
     result = CliRunner().invoke(
         dbdocs, ["deploy", "--version", "1.2", "--alias", "latest", "--title", "v1.2", "--push"]
     )
     assert result.exit_code == 0
+    assert type(seen.pop("builder")) is ReportBuilder
     assert seen == {"version": "1.2", "alias": "latest", "push": True, "title": "v1.2"}
     assert "Deployed version 1.2" in result.output
 
@@ -165,10 +178,7 @@ def test_deploy_delete_command(monkeypatch):
 
 
 def test_deploy_dbdocs_error_is_clean(monkeypatch):
-    def _boom(config, version, alias, push, title):
-        raise DeployError("push failed")
-
-    monkeypatch.setattr(cli_main.deploy_module, "deploy", _boom)
+    monkeypatch.setattr(cli_main.deploy_module, "deploy", _failing_deploy)
     result = CliRunner().invoke(dbdocs, ["deploy", "--version", "1.0"])
     assert result.exit_code != 0
     assert "push failed" in result.output
@@ -209,12 +219,7 @@ def test_main_entrypoint_invokes_cli(monkeypatch):
 
 def _capture_builder(monkeypatch):
     seen = {}
-
-    def _builder_for(config):
-        seen["config"] = config
-        return ReportBuilder(config)
-
-    monkeypatch.setattr(cli_main, "builder_for", _builder_for)
+    monkeypatch.setattr(cli_main, "builder_for", partial(_fake_builder_for, seen))
     monkeypatch.setattr(ReportBuilder, "generate", lambda self, output_dir: "/s")
     return seen
 
@@ -245,15 +250,13 @@ def test_generate_no_info_schema_overrides_config(monkeypatch, tmp_path):
 
 
 def test_deploy_info_schema_flags_flow_to_config(monkeypatch):
-    seen = {}
-    monkeypatch.setattr(
-        cli_main.deploy_module,
-        "deploy",
-        lambda config, **kwargs: seen.setdefault("config", config) and "/out",
-    )
+    seen = _capture_builder(monkeypatch)
+    deployed = {}
+    monkeypatch.setattr(cli_main.deploy_module, "deploy", partial(_fake_deploy, deployed))
     result = CliRunner().invoke(
         dbdocs, ["deploy", "--version", "1.0", "--info-schema", "--info-schema-dir", "d"]
     )
     assert result.exit_code == 0
     assert seen["config"].info_schema is True
     assert seen["config"].info_schema_dir == "d"
+    assert deployed["builder"] is seen["builder"]

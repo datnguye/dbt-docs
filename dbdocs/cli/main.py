@@ -116,7 +116,14 @@ def deploy(config: DbDocsConfig, version, alias, title, delete, push, info_schem
             deploy_module.delete(config, version=version, push=push)
             click.echo(f"Deleted version {version}")
             return
-        out = deploy_module.deploy(config, version=version, alias=alias, push=push, title=title)
+        out = deploy_module.deploy(
+            config,
+            version=version,
+            alias=alias,
+            push=push,
+            title=title,
+            builder=builder_for(config),
+        )
     except DbDocsError as exc:
         raise click.ClickException(str(exc)) from exc
     click.echo(f"Deployed version {version} into {out}")

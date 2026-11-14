@@ -85,9 +85,10 @@ The package is grouped by what each module does in the generate pipeline:
 node-level graph, column-level lineage) → `site/` (assemble + publish: the data
 dict builder, the external gzip payload, versioned deploy, and the bundled SPA).
 `sources/` holds opt-in artifact sources (`--info-schema`) that wrap `site/`'s
-`ReportBuilder` (see **Opt-in artifact-source plugin**); the CLI and `deploy` pick
-the builder through `sources.factory.builder_for`. The CLI (`cli/`) wires user
-commands to `site/`. `extract/` and `site/` import from `core/`, never the reverse.
+`ReportBuilder` (see **Opt-in artifact-source plugin**). The CLI (`cli/`) wires user
+commands to `site/`: it picks the builder with `sources.factory.builder_for` and
+hands it to `site.deploy.deploy(builder=...)`, so `site/` never imports `sources/`.
+`extract/` and `site/` import from `core/`, never the reverse.
 
 ### Example
 
@@ -752,7 +753,7 @@ def _validate_segment(value: str, kind: str) -> None:
 _validate_segment(version, "version")
 if alias is not None:
     _validate_segment(alias, "alias")
-ReportBuilder(config).generate(output_dir=str(version_dir), versioned=True)
+(builder or ReportBuilder(config)).generate(output_dir=str(version_dir), versioned=True)
 
 # dbdocs/site/builder.py — generate() writes the flag into metadata
 data["metadata"]["versioned"] = versioned   # False by default, True from deploy()
@@ -1470,7 +1471,10 @@ extractor, dbterd and the API tree stay untouched. `builder_for(config)`
 `ReportBuilder` (same code path, same output); flag on loads
 `dbdocs.sources.info_schema.builder` through `importlib.import_module`, so DuckDB stays an
 optional extra (`dbdocs[info-schema]`) without an in-function import, and a
-`ModuleNotFoundError` becomes `DbDocsConfigError`.
+`ModuleNotFoundError` for `duckdb` (only — any other missing module re-raises)
+becomes `DbDocsConfigError`. The CLI calls `builder_for` for both `generate` and
+`deploy` and passes the result into `deploy(builder=...)`; `site/` never imports
+`sources/`.
 
 One merge rule, applied per record and field in `synth.py`: the parquet set decides
 which records exist, a non-empty parquet value wins, and the matching JSON record fills
@@ -1509,5 +1513,6 @@ data = staged.build_data()
 - `dbdocs/sources/info_schema/reader.py` — `InfoSchemaReader`
 - `dbdocs/sources/info_schema/synth.py` — `build_manifest`, `build_catalog`, `build_run_results`, `column_lineage`, `_READ_ONLY_EVOLUTIONS`, `_fill`; JSON-text columns decode through artifact-parser's `decode_json_column` (one definition — don't re-add a local copy)
 - `dbdocs/core/config.py` — `info_schema`, `info_schema_dir`, `info_schema_path`
-- `dbdocs/cli/main.py` — `info_schema_options`, `_apply_info_schema` (on `generate` and `deploy`)
+- `dbdocs/cli/main.py` — `info_schema_options`, `_apply_info_schema` (on `generate` and `deploy`), `builder_for(config)` passed as `deploy(builder=...)`
+- `dbdocs/site/deploy.py` — `def deploy` (`builder` parameter, default `ReportBuilder(config)`)
 - `tests/fixtures/jaffle_shop_v2/` — dbt Fusion 2.0.11 `--generate-info-schema` output (parquet + manifest + run_results, no catalog)

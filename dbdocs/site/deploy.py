@@ -22,7 +22,7 @@ from shutil import copytree, rmtree
 from dbdocs.core.config import DbDocsConfig
 from dbdocs.core.exceptions import DeployError
 from dbdocs.core.log import logger
-from dbdocs.sources.factory import builder_for
+from dbdocs.site.builder import ReportBuilder
 
 VERSIONS_FILE = "versions.json"
 
@@ -67,8 +67,14 @@ def deploy(
     alias: "str | None" = None,
     push: bool = False,
     title: "str | None" = None,
+    builder: "ReportBuilder | None" = None,
 ) -> str:
-    """Generate ``version`` into the output root and update the version index."""
+    """Generate ``version`` into the output root and update the version index.
+
+    ``builder`` renders the version; the CLI passes ``sources.factory.builder_for``'s
+    pick so an opt-in artifact source applies, keeping ``site/`` free of ``sources/``.
+    It defaults to a plain ``ReportBuilder``.
+    """
     _validate_segment(version, "version")
     if alias is not None:
         _validate_segment(alias, "alias")
@@ -77,7 +83,7 @@ def deploy(
     if version_dir.exists():
         rmtree(version_dir)
 
-    builder_for(config).generate(output_dir=str(version_dir), versioned=True)
+    (builder or ReportBuilder(config)).generate(output_dir=str(version_dir), versioned=True)
 
     versions = _upsert_version(_read_versions(output_root), version, title or version, alias)
     (output_root / VERSIONS_FILE).write_text(json.dumps(versions, indent=2), encoding="utf-8")
