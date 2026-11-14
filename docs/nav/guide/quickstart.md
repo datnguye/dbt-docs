@@ -38,14 +38,17 @@ dbt docs generate           # writes target/manifest.json + target/catalog.json
 ## 2. Generate the site
 
 ```bash
-dbdocs generate             # builds ./site/index.html with all data baked in
+dbdocs generate             # builds the site into target/site/
 ```
 
 This reads the artifacts (from `target/` by default), derives the documentation
 data — catalog nodes, the lineage graph, the ERD, and column-level lineage — and
-writes a single self-contained `site/index.html` plus a `site/dbdocs-data.json`
-companion. Everything the SPA needs is base64-injected into that one HTML file,
-so it works straight off the filesystem.
+writes the site to `target/site/` (change it with `output_dir`): a small
+`index.html`, the data as a gzipped `dbdocs-data.json.gz` the page fetches on
+load (plus a plain `dbdocs-data.json` for poking at), and a static
+[REST API](./rest-api.md) under `api/v1/`. Because the page fetches its data,
+the site has to be served over HTTP — double-clicking `index.html` opens a page
+with nothing to show. [How It Works](./how-it-works.md) explains why.
 
 ## 3. Serve it
 
